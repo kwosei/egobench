@@ -1,0 +1,34 @@
+[project]
+name = "egobench"
+version = "0.1.0"
+description = "Local personal LLM benchmark generator from exported chat history."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=0.49.0",
+  "jinja2>=3.1.4",
+  "keyring>=25.0.0",
+  "numpy>=1.26.0",
+  "openai>=1.78.0",
+  "pydantic>=2.7.0",
+  "pytest>=8.2.0",
+  "rich>=13.7.0",
+  "textual>=0.86.0",
+  "typer>=0.12.3",
+]
+
+[project.optional-dependencies]
+local-embeddings = ["sentence-transformers>=3.0.0"]
+cluster = ["hdbscan>=0.8.38"]
+dev = []
+
+[project.scripts]
+egobench = "egobench.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,140 @@
+[
+  {
+    "id": "conv-debug-1",
+    "title": "Debug pytest",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["My pytest suite hangs after a fixture opens a socket. How can I debug teardown ordering?"]}
+        }
+      },
+      "b": {
+        "message": {
+          "create_time": 2,
+          "author": {"role": "assistant"},
+          "content": {"parts": ["Use verbose fixture logging and inspect finalizers."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-debug-2",
+    "title": "Traceback help",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Can you explain this Python stack trace and suggest the most likely fix?\\nTypeError: expected str, got None"]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-writing-1",
+    "title": "Rewrite email",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Rewrite this product update email so it is clearer and less formal."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-writing-2",
+    "title": "Blog outline",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Draft an outline for a blog post about evals for personal AI workflows."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-planning-1",
+    "title": "Trip plan",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Plan a three day itinerary for Kyoto with good food and quiet mornings."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-planning-2",
+    "title": "Launch checklist",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Create a launch checklist for a small developer tool with docs, pricing, and support steps."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-food-1",
+    "title": "Dinner",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Should I order pizza or thai tonight if I want something filling but not too heavy?"]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-data-1",
+    "title": "SQL",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["Write a SQL query that groups orders by week and computes repeat purchase rate."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-ack-1",
+    "title": "Thanks",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["thanks"]}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-ping-1",
+    "title": "Ping",
+    "mapping": {
+      "a": {
+        "message": {
+          "create_time": 1,
+          "author": {"role": "user"},
+          "content": {"parts": ["are you there?"]}
+        }
+      }
+    }
+  }
+]
+
