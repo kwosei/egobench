@@ -38,7 +38,11 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     second_hash = _hash_from_text(second)
     assert first_hash == second_hash
 
-    result = runner.invoke(app, ["eval", "--model", "local-demo", "--yes"])
+    # OPENAI_API_KEY is unset, so the recorded fallback handles candidate calls.
+    result = runner.invoke(
+        app,
+        ["eval", "--provider", "openai", "--model", "gpt-5", "--yes"],
+    )
     assert result.exit_code == 0, result.output
 
     result = runner.invoke(app, ["report"])
@@ -48,7 +52,7 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["leaderboard"])
     assert result.exit_code == 0, result.output
-    assert "local-demo" in result.output
+    assert "openai:gpt-5" in result.output
 
 
 def _hash_from_text(text: str) -> str:

@@ -88,43 +88,37 @@ def _embed_text(text: str) -> list[float]:
 
 
 def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB) -> list[list[float]]:
-    if cfg.embeddings.backend == "openai" and cfg.api_key_for_provider("openai"):
-        try:
-            from openai import OpenAI
+    provider_cfg = cfg.provider(cfg.embeddings.provider)
+    model = cfg.embeddings.model
 
-            model = cfg.embeddings.model
-            client = OpenAI(api_key=cfg.api_key_for_provider("openai"))
-            response = client.embeddings.create(model=model, input=texts)
-            vectors = [item.embedding for item in response.data]
-            usage = getattr(response, "usage", None)
-            input_tokens = getattr(usage, "prompt_tokens", sum(estimate_tokens(text) for text in texts))
-            with db.connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO phase_cost_log(phase, model, input_tokens, output_tokens, cost_usd)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    ("phase3", model, int(input_tokens), 0, estimate_cost(model, int(input_tokens), 0)),
-                )
-            return vectors
-        except Exception:
-            pass
-    if cfg.embeddings.backend == "local":
-        local_vectors = _local_sentence_transformer(texts, cfg.embeddings.model)
-        if local_vectors is not None:
-            return local_vectors
-    return [_embed_text(text) for text in texts]
-
-
-def _local_sentence_transformer(texts: list[str], model: str) -> list[list[float]] | None:
+    api_key = cfg.api_key_for_provider(provider_cfg.name)
+    if provider_cfg.api_key_env and not api_key:
+        return [_embed_text(text) for text in texts]
     try:
-        from sentence_transformers import SentenceTransformer
+        from openai import OpenAI
 
-        encoder = SentenceTransformer(model)
-        vectors = encoder.encode(texts, normalize_embeddings=True)
-        return [list(map(float, vector)) for vector in vectors]
+        client_kwargs: dict = {"api_key": api_key or "not-needed"}
+        if provider_cfg.base_url:
+            client_kwargs["base_url"] = provider_cfg.base_url
+        client = OpenAI(**client_kwargs)
+        response = client.embeddings.create(model=model, input=texts)
+        vectors = [item.embedding for item in response.data]
+        usage = getattr(response, "usage", None)
+        input_tokens = getattr(usage, "prompt_tokens", sum(estimate_tokens(text) for text in texts))
+        # Local servers don't bill us — only charge when the model has a known
+        # price entry.
+        cost = 0.0 if provider_cfg.base_url else estimate_cost(model, int(input_tokens), 0)
+        with db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO phase_cost_log(phase, model, input_tokens, output_tokens, cost_usd)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("phase3", model, int(input_tokens), 0, cost),
+            )
+        return vectors
     except Exception:
-        return None
+        return [_embed_text(text) for text in texts]
 
 
 def _tokens(text: str) -> list[str]:

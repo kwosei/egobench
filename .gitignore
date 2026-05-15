@@ -3,4 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 egobench-workspace/
+.env
+.env.*
+!.env.example
 

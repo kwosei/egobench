@@ -54,7 +54,7 @@ def run_build(ctx: PipelineCtx, *, from_phase: int | None = None) -> dict:
         4,
         "phase4",
         lambda: {"clusters": state_rows(ctx.db)},
-        lambda: phase4_categorize.run(ctx.db, ctx.cfg),
+        lambda: phase4_categorize.run(ctx.db, ctx.cfg, ctx.console),
         from_phase,
     )
     outputs["phase5"] = _run_cached(
@@ -78,7 +78,7 @@ def run_build(ctx: PipelineCtx, *, from_phase: int | None = None) -> dict:
         7,
         "phase7",
         lambda: {"selected": state_rows(ctx.db)},
-        lambda: phase7_checklist.run(ctx.db, ctx.cfg),
+        lambda: phase7_checklist.run(ctx.db, ctx.cfg, ctx.console),
         from_phase,
     )
     outputs["phase8"] = _run_cached(

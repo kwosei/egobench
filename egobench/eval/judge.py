@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 
-from egobench.config import EgoBenchConfig
+from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB
 from egobench.llm.factory import make_client
 
@@ -12,7 +12,7 @@ def judge_response(
     *,
     db: DB,
     cfg: EgoBenchConfig,
-    judge_model: str,
+    judge_model: ModelRef,
     task_prompt: str,
     checklist: list[str],
     response: str,

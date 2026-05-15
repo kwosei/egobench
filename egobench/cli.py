@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from egobench.config import load_config, write_default_config
+load_dotenv()
+
+from egobench.config import DEFAULT_CONFIG_TEXT, ConfigError, ModelRef, load_config
 from egobench.cost.estimator import build_estimate, estimate_table, eval_estimate
 from egobench.db import DB, fetch_conversations, init_db
 from egobench.eval.runner import load_benchmark, run_eval
@@ -34,14 +37,28 @@ def _workspace() -> tuple:
 
 
 @app.command()
-def init() -> None:
+def init(
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing egobench.toml with the current default.")] = False,
+) -> None:
     """Create egobench-workspace and default config."""
     paths = workspace_from_cwd()
     paths.ensure()
-    created = write_default_config(paths.config)
     init_db(paths.db)
     console.print(f"Workspace: {paths.root}")
-    console.print("Created egobench.toml" if created else "egobench.toml already exists")
+
+    if force or not paths.config.exists():
+        paths.config.write_text(DEFAULT_CONFIG_TEXT, encoding="utf-8")
+        console.print("Wrote egobench.toml" if force else "Created egobench.toml")
+        return
+
+    try:
+        load_config(paths.config)
+    except ConfigError as err:
+        console.print("[red]egobench.toml exists but does not parse:[/red]")
+        console.print(str(err), markup=False)
+        console.print("Re-run with [bold]--force[/bold] to overwrite it with the current default.")
+        raise typer.Exit(code=1)
+    console.print("egobench.toml already exists (parsed cleanly)")
 
 
 @app.command()
@@ -89,24 +106,39 @@ def review(
 
 @app.command()
 def eval(
-    model: Annotated[str, typer.Option("--model", help="Candidate model to evaluate.")],
-    judge: Annotated[str | None, typer.Option("--judge", help="Judge model override.")] = None,
+    provider: Annotated[str, typer.Option("--provider", help="Provider of the model to benchmark (key in [providers.*]).")],
+    model: Annotated[str, typer.Option("--model", help="Model id to benchmark, as the provider expects it.")],
+    judge_provider: Annotated[str | None, typer.Option("--judge-provider", help="Override judge provider (requires --judge-model).")] = None,
+    judge_model: Annotated[str | None, typer.Option("--judge-model", help="Override judge model id (requires --judge-provider).")] = None,
     estimate_only: Annotated[bool, typer.Option("--estimate-only")] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip cost confirmation.")] = False,
 ) -> None:
-    """Evaluate one candidate model against benchmark.json."""
+    """Run the benchmark against one model and score its answers."""
     paths, cfg, db = _workspace()
     benchmark = load_benchmark(paths)
-    judge_model = judge or cfg.judges.default
-    if judge is not None:
-        cfg = replace(cfg, judges=replace(cfg.judges, default=judge))
-    lines = eval_estimate(cfg, model, len(benchmark.tasks))
+
+    if (judge_provider is None) ^ (judge_model is None):
+        raise typer.BadParameter("--judge-provider and --judge-model must be set together.")
+
+    candidate = ModelRef(provider=provider, model=model)
+    if provider not in cfg.providers:
+        raise typer.BadParameter(f"Unknown provider '{provider}'. Add [providers.{provider}] to egobench.toml.")
+
+    if judge_provider is not None:
+        if judge_provider not in cfg.providers:
+            raise typer.BadParameter(f"Unknown judge provider '{judge_provider}'.")
+        judge_ref = ModelRef(provider=judge_provider, model=judge_model or "")
+        cfg = replace(cfg, judges=replace(cfg.judges, default=judge_ref))
+    else:
+        judge_ref = cfg.judges.default
+
+    lines = eval_estimate(cfg, candidate, len(benchmark.tasks))
     console.print(estimate_table(lines))
     if estimate_only:
         return
     if not yes and sum(line.cost_usd for line in lines) > 0:
         typer.confirm("Continue with eval?", abort=True)
-    result = run_eval(paths, db, cfg, model=model, judge_model=judge_model)
+    result = run_eval(paths, db, cfg, model=candidate, judge_model=judge_ref)
     console.print(f"Run written: {result['run_dir']}")
     console.print(f"Raw EgoScore: {result['raw_egoscore']:.2f}")
     console.print(f"Freq-weighted EgoScore: {result['frequency_weighted_egoscore']:.2f}")

@@ -3,14 +3,20 @@ from __future__ import annotations
 import json
 import re
 
+from egobench.config import ModelRef
 from egobench.llm.base import Completion, Usage, estimate_tokens
 
 
 class RecordedLLMClient:
     """Deterministic local client used for tests and no-key smoke runs."""
 
-    def __init__(self, model: str = "local-recorded"):
-        self.model = model
+    def __init__(self, ref: ModelRef | None = None, *, model: str | None = None):
+        if ref is not None:
+            self.ref = ref
+            self.model = ref.model
+        else:
+            self.model = model or "local-recorded"
+            self.ref = ModelRef(provider="recorded", model=self.model)
 
     def complete(self, prompt: str, *, temperature: float = 0.0) -> Completion:
         payload = self._payload(prompt)

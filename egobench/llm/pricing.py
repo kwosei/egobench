@@ -19,7 +19,14 @@ PRICES: dict[str, ModelPrice] = {
 
 
 def price_for(model: str) -> ModelPrice:
-    return PRICES.get(model, ModelPrice(input_per_1k=0.0, output_per_1k=0.0))
+    if model in PRICES:
+        return PRICES[model]
+    # OpenRouter-style "vendor/model" — strip the vendor prefix and retry.
+    if "/" in model:
+        _, _, bare = model.partition("/")
+        if bare in PRICES:
+            return PRICES[bare]
+    return ModelPrice(input_per_1k=0.0, output_per_1k=0.0)
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
