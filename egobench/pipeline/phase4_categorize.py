@@ -3,17 +3,23 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 
+from rich.console import Console
+
 from egobench.config import EgoBenchConfig
 from egobench.db import DB
 from egobench.llm.factory import make_client
 from egobench.llm.recorded import _label
 
 
-def run(db: DB, cfg: EgoBenchConfig) -> dict:
+def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+    console = console or Console()
     clusters = _clusters(db)
-    client = make_client(cfg.judges.default, cfg, db, "phase4")
+    judge = cfg.judges.default
+    client = make_client(judge, cfg, db, "phase4")
+    total = len(clusters)
+    console.print(f"[dim]phase4: categorizing {total} clusters with {judge.display()}[/dim]")
     updates: list[tuple[str, str, int]] = []
-    for cluster_id, texts in clusters.items():
+    for idx, (cluster_id, texts) in enumerate(clusters.items(), start=1):
         prompt = (
             "Return CATEGORY_JSON with keys label and description for these user tasks.\n"
             f"<TASK>\n{chr(10).join(texts[:5])}\n</TASK>"
@@ -25,6 +31,7 @@ def run(db: DB, cfg: EgoBenchConfig) -> dict:
         except Exception:
             label = _label(" ".join(texts))
             description = f"Tasks related to {label.lower()}."
+        console.print(f"[dim]  [{idx}/{total}] cluster {cluster_id} ({len(texts)} tasks) -> {label[:60]}[/dim]")
         updates.append((label[:80], description[:500], cluster_id))
     with db.connect() as conn:
         conn.executemany(

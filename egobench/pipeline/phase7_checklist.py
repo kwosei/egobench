@@ -3,25 +3,39 @@ from __future__ import annotations
 import json
 import re
 
+from rich.console import Console
+
 from egobench.config import EgoBenchConfig
 from egobench.db import DB
 from egobench.llm.factory import make_client
 from egobench.llm.recorded import _checklist
 
 
-def run(db: DB, cfg: EgoBenchConfig) -> dict:
+def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+    console = console or Console()
     rows = _rows(db)
+    total = len(rows)
+    panel = list(cfg.judges.checklist_panel)
+    console.print(
+        f"[dim]phase7: building checklists for {total} tasks "
+        f"({len(panel)} panel models + merge per task)[/dim]"
+    )
     updates: list[tuple[str, str, str]] = []
-    for row in rows:
+    for idx, row in enumerate(rows, start=1):
+        preview = row["first_user_text"].splitlines()[0][:60]
+        console.print(f"[dim]  [{idx}/{total}] {row['conversation_id']}: {preview}[/dim]")
         raw: dict[str, list[str]] = {}
-        for model in cfg.judges.checklist_panel:
-            client = make_client(model, cfg, db, "phase7")
+        for ref in panel:
+            client = make_client(ref, cfg, db, "phase7")
             prompt = (
                 "Return CHECKLIST_JSON with key items. Include 5 to 10 concise rubric items.\n"
                 f"<TASK>\n{row['first_user_text']}\n</TASK>"
             )
-            raw[model] = _items_from_completion(client.complete(prompt).text, row["first_user_text"])
+            key = ref.display()
+            raw[key] = _items_from_completion(client.complete(prompt).text, row["first_user_text"])
+            console.print(f"[dim]    panel {key}: {len(raw[key])} items[/dim]")
         merged = _merge(raw, row["first_user_text"], cfg, db)
+        console.print(f"[dim]    merged: {len(merged)} items[/dim]")
         updates.append(
             (
                 json.dumps(merged, sort_keys=True),

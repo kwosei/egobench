@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from egobench.config import EgoBenchConfig
+from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB, latest_benchmark_hash
 from egobench.eval.judge import judge_response
 from egobench.eval.score import compute_scores
@@ -16,7 +16,7 @@ from egobench.pipeline.schema import Benchmark, BenchmarkTask
 from egobench.reporting.html import render_reports
 
 
-def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: str, judge_model: str) -> dict:
+def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: ModelRef, judge_model: ModelRef) -> dict:
     benchmark = load_benchmark(paths)
     expected_hash = latest_benchmark_hash(db)
     if expected_hash and expected_hash != benchmark.metadata.benchmark_hash:
@@ -25,7 +25,7 @@ def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: str, 
     started = time.monotonic()
     before_cost_id = _max_cost_id(db)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = paths.runs_dir / _safe_model_name(model) / timestamp
+    run_dir = paths.runs_dir / _safe_model_name(model.display()) / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
     score_rows: list[dict] = []
@@ -37,7 +37,7 @@ def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: str, 
     ):
         for task in benchmark.tasks:
             prompt = task_prompt(task)
-            response = call_candidate(db, cfg, model, task)
+            response = answer_task(db, cfg, model, task)
             judged = judge_response(
                 db=db,
                 cfg=cfg,
@@ -72,8 +72,8 @@ def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: str, 
     summary = compute_scores(score_rows)
     cost_usd = _cost_since(db, before_cost_id)
     payload = {
-        "model": model,
-        "judge": judge_model,
+        "model": model.display(),
+        "judge": judge_model.display(),
         "benchmark_hash": benchmark.metadata.benchmark_hash,
         "task_count": len(score_rows),
         "raw_egoscore": summary.raw,
@@ -98,10 +98,10 @@ def task_prompt(task: BenchmarkTask) -> str:
     return "\n".join(f"{turn.role.upper()}: {turn.text}" for turn in task.turns)
 
 
-def call_candidate(db: DB, cfg: EgoBenchConfig, model: str, task: BenchmarkTask) -> str:
-    client = make_client(model, cfg, db, "eval-candidate")
+def answer_task(db: DB, cfg: EgoBenchConfig, model: ModelRef, task: BenchmarkTask) -> str:
+    client = make_client(model, cfg, db, "eval-answer")
     prompt = task_prompt(task)
-    if cfg.api_key_for_model(model):
+    if cfg.api_key_for(model):
         completion = client.complete(prompt)
         return completion.text.strip()
     completion = client.complete(f"Return CANDIDATE_RESPONSE_JSON with key response.\n<TASK>\n{prompt}\n</TASK>")
