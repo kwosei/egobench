@@ -19,8 +19,21 @@ class TaskCandidate(BaseModel):
     first_user_text: str
     cluster_id: int | None = None
     cluster_size: int = 1
+    near_duplicate_group_id: int | None = None
+    near_duplicate_group_size: int = 1
+    candidate_group_id: int | None = None
+    candidate_group_size: int = 1
     category_label: str = "General"
     category_description: str = ""
+    task_family_id: str = "general-assistance"
+    task_family: str = "General assistance"
+    domain: str = "General"
+    skills: list[str] = Field(default_factory=list)
+    family_fit: str = "strong"
+    difficulty: str = "medium"
+    specificity: str = "generalizable"
+    family_size: int = 1
+    family_importance: float = 0.0
     importance: float = 0.0
     selected: bool = False
     checklist: list[str] = Field(default_factory=list)
@@ -36,6 +49,12 @@ class BenchmarkTask(BaseModel):
     cluster_id: int
     cluster_size: int
     importance: float
+    task_family_id: str = "general-assistance"
+    task_family: str = "General assistance"
+    domain: str = "General"
+    skills: list[str] = Field(default_factory=list)
+    difficulty: str = "medium"
+    specificity: str = "generalizable"
     checklist: list[str]
 
 
@@ -43,6 +62,11 @@ class BenchmarkMetadata(BaseModel):
     version: int
     benchmark_hash: str
     task_count: int
+    task_family_count: int = 0
+    domain_distribution: dict[str, int] = Field(default_factory=dict)
+    family_distribution: dict[str, int] = Field(default_factory=dict)
+    difficulty_distribution: dict[str, int] = Field(default_factory=dict)
+    specificity_distribution: dict[str, int] = Field(default_factory=dict)
     generated_at: str
     seed: int
     config: dict[str, Any]
@@ -65,4 +89,3 @@ def stable_hash(value: Any) -> str:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-

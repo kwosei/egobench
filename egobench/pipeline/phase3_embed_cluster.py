@@ -6,6 +6,7 @@ import re
 from collections import Counter, defaultdict
 
 import numpy as np
+from rich.console import Console
 
 from egobench.config import EgoBenchConfig
 from egobench.db import DB
@@ -38,27 +39,57 @@ STOP = {
 }
 
 
-def run(db: DB, cfg: EgoBenchConfig) -> dict:
+def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+    console = console or Console()
     tasks = _task_rows(db)
+    console.print(f"[dim]phase3: embedding and clustering {len(tasks)} tasks[/dim]")
     if not tasks:
         return {"phase": 3, "clusters": 0}
     texts = [row["first_user_text"] for row in tasks]
-    embeddings = _embed_texts(texts, cfg, db)
-    labels = _cluster(embeddings, [row["first_user_text"] for row in tasks], cfg)
-    sizes = Counter(labels)
+    embeddings = _embed_texts(texts, cfg, db, console)
+    candidate_labels = _cluster(embeddings, [row["first_user_text"] for row in tasks], cfg, console)
+    candidate_sizes = Counter(candidate_labels)
+    duplicate_labels = _near_duplicate_labels(embeddings, cfg.sample.near_duplicate_threshold)
+    duplicate_sizes = Counter(duplicate_labels)
     with db.connect() as conn:
         conn.executemany(
             """
             UPDATE task_candidates
-            SET cluster_id = ?, cluster_size = ?, updated_at = CURRENT_TIMESTAMP
+            SET cluster_id = ?,
+                cluster_size = ?,
+                candidate_group_id = ?,
+                candidate_group_size = ?,
+                near_duplicate_group_id = ?,
+                near_duplicate_group_size = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE conversation_id = ?
             """,
             [
-                (int(labels[idx]), int(sizes[labels[idx]]), tasks[idx]["conversation_id"])
+                (
+                    int(candidate_labels[idx]),
+                    int(candidate_sizes[candidate_labels[idx]]),
+                    int(candidate_labels[idx]),
+                    int(candidate_sizes[candidate_labels[idx]]),
+                    int(duplicate_labels[idx]),
+                    int(duplicate_sizes[duplicate_labels[idx]]),
+                    tasks[idx]["conversation_id"],
+                )
                 for idx in range(len(tasks))
             ],
         )
-    return {"phase": 3, "clusters": len(sizes), "tasks": len(tasks)}
+    duplicate_group_count = len(duplicate_sizes)
+    suppressed = len(tasks) - duplicate_group_count
+    console.print(
+        f"[dim]phase3: assigned {len(tasks)} tasks across {len(candidate_sizes)} candidate groups "
+        f"and {duplicate_group_count} near-duplicate groups[/dim]"
+    )
+    return {
+        "phase": 3,
+        "candidate_groups": len(candidate_sizes),
+        "near_duplicate_groups": duplicate_group_count,
+        "duplicates_suppressed": suppressed,
+        "tasks": len(tasks),
+    }
 
 
 def _task_rows(db: DB) -> list[dict]:
@@ -87,12 +118,16 @@ def _embed_text(text: str) -> list[float]:
     return [value / norm for value in vec]
 
 
-def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB) -> list[list[float]]:
+def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB, console: Console) -> list[list[float]]:
     provider_cfg = cfg.provider(cfg.embeddings.provider)
     model = cfg.embeddings.model
+    console.print(f"[dim]phase3: embedding with {provider_cfg.name}:{model}[/dim]")
 
     api_key = cfg.api_key_for_provider(provider_cfg.name)
     if provider_cfg.api_key_env and not api_key:
+        console.print(
+            f"[dim]phase3: {provider_cfg.api_key_env} is unset; using deterministic heuristic embeddings[/dim]"
+        )
         return [_embed_text(text) for text in texts]
     try:
         from openai import OpenAI
@@ -116,9 +151,52 @@ def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB) -> list[list[flo
                 """,
                 ("phase3", model, int(input_tokens), 0, cost),
             )
-        return vectors
-    except Exception:
+        return _unit_vectors(vectors)
+    except Exception as err:
+        console.print(f"[dim]phase3: embedding API failed ({err}); using deterministic heuristic embeddings[/dim]")
         return [_embed_text(text) for text in texts]
+
+
+def _unit_vectors(vectors: list[list[float]]) -> list[list[float]]:
+    normalized: list[list[float]] = []
+    for vector in vectors:
+        norm = math.sqrt(sum(float(value) * float(value) for value in vector))
+        if not norm:
+            normalized.append([0.0 for _ in vector])
+            continue
+        normalized.append([float(value) / norm for value in vector])
+    return normalized
+
+
+def _near_duplicate_labels(embeddings: list[list[float]], threshold: float) -> list[int]:
+    if not embeddings:
+        return []
+    vectors = _unit_vectors(embeddings)
+    parent = list(range(len(vectors)))
+
+    def find(idx: int) -> int:
+        while parent[idx] != idx:
+            parent[idx] = parent[parent[idx]]
+            idx = parent[idx]
+        return idx
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        parent[max(left_root, right_root)] = min(left_root, right_root)
+
+    for left in range(len(vectors)):
+        for right in range(left + 1, len(vectors)):
+            similarity = sum(a * b for a, b in zip(vectors[left], vectors[right]))
+            if similarity >= threshold:
+                union(left, right)
+
+    roots = [find(idx) for idx in range(len(vectors))]
+    ordered_roots = sorted(set(roots), key=roots.index)
+    mapping = {root: idx for idx, root in enumerate(ordered_roots)}
+    return [mapping[root] for root in roots]
 
 
 def _tokens(text: str) -> list[str]:
@@ -129,18 +207,26 @@ def _tokens(text: str) -> list[str]:
     ]
 
 
-def _cluster(embeddings: list[list[float]], texts: list[str], cfg: EgoBenchConfig) -> list[int]:
+def _cluster(
+    embeddings: list[list[float]],
+    texts: list[str],
+    cfg: EgoBenchConfig,
+    console: Console,
+) -> list[int]:
     if len(embeddings) < 3:
+        console.print("[dim]phase3: fewer than 3 tasks; using heuristic clustering[/dim]")
         return _heuristic_labels(texts)
     try:
         import hdbscan  # type: ignore
 
         min_cluster_size = max(3, len(embeddings) // 50)
+        console.print(f"[dim]phase3: clustering with hdbscan (min_cluster_size={min_cluster_size})[/dim]")
         raw = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, prediction_data=False).fit_predict(np.array(embeddings))
         if len(set(raw)) > 1:
             return _normalize_labels(raw.tolist(), texts)
-    except Exception:
-        pass
+        console.print("[dim]phase3: hdbscan produced one cluster; using heuristic clustering[/dim]")
+    except Exception as err:
+        console.print(f"[dim]phase3: hdbscan unavailable or failed ({err}); using heuristic clustering[/dim]")
     return _heuristic_labels(texts)
 
 

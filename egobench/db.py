@@ -10,7 +10,24 @@ from typing import Iterator
 from egobench.ingest.base import Conversation
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+
+
+TASK_CANDIDATE_COLUMN_DEFS = {
+    "near_duplicate_group_id": "INTEGER",
+    "near_duplicate_group_size": "INTEGER",
+    "candidate_group_id": "INTEGER",
+    "candidate_group_size": "INTEGER",
+    "task_family_id": "TEXT",
+    "task_family": "TEXT",
+    "domain": "TEXT",
+    "skills_json": "TEXT",
+    "family_fit": "TEXT",
+    "difficulty": "TEXT",
+    "specificity": "TEXT",
+    "family_size": "INTEGER",
+    "family_importance": "REAL",
+}
 
 
 @dataclass(frozen=True)
@@ -61,8 +78,21 @@ def init_db(path: Path) -> DB:
               first_user_text TEXT NOT NULL,
               cluster_id INTEGER,
               cluster_size INTEGER,
+              near_duplicate_group_id INTEGER,
+              near_duplicate_group_size INTEGER,
+              candidate_group_id INTEGER,
+              candidate_group_size INTEGER,
               category_label TEXT,
               category_description TEXT,
+              task_family_id TEXT,
+              task_family TEXT,
+              domain TEXT,
+              skills_json TEXT,
+              family_fit TEXT,
+              difficulty TEXT,
+              specificity TEXT,
+              family_size INTEGER,
+              family_importance REAL,
               importance REAL,
               selected INTEGER NOT NULL DEFAULT 0,
               checklist_json TEXT,
@@ -95,11 +125,22 @@ def init_db(path: Path) -> DB:
             );
             """
         )
+        _migrate_task_candidates(conn)
         conn.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
     return db
+
+
+def _migrate_task_candidates(conn: sqlite3.Connection) -> None:
+    existing = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(task_candidates)").fetchall()
+    }
+    for column, ddl in TASK_CANDIDATE_COLUMN_DEFS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE task_candidates ADD COLUMN {column} {ddl}")
 
 
 def insert_conversations(db: DB, conversations: list[Conversation], source_adapter: str) -> int:
@@ -160,4 +201,3 @@ def latest_benchmark_hash(db: DB) -> str | None:
             "SELECT benchmark_hash FROM benchmark_versions ORDER BY version DESC LIMIT 1"
         ).fetchone()
         return None if row is None else str(row["benchmark_hash"])
-

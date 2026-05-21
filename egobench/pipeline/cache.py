@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Sequence
 
 from egobench.config import EgoBenchConfig, stable_config_dict
 from egobench.db import DB
@@ -45,16 +45,46 @@ def write_cache(db: DB, phase: str, cache_key: str, output: dict[str, Any]) -> N
         )
 
 
-def state_rows(db: DB) -> list[dict[str, Any]]:
+TASK_CANDIDATE_COLUMNS = {
+    "conversation_id",
+    "is_task",
+    "first_user_text",
+    "cluster_id",
+    "cluster_size",
+    "near_duplicate_group_id",
+    "near_duplicate_group_size",
+    "candidate_group_id",
+    "candidate_group_size",
+    "category_label",
+    "category_description",
+    "task_family_id",
+    "task_family",
+    "domain",
+    "skills_json",
+    "family_fit",
+    "difficulty",
+    "specificity",
+    "family_size",
+    "family_importance",
+    "importance",
+    "selected",
+    "checklist_json",
+    "raw_checklists_json",
+}
+
+
+def state_rows(db: DB, columns: Sequence[str] | None = None) -> list[dict[str, Any]]:
+    selected_columns = list(columns or TASK_CANDIDATE_COLUMNS)
+    invalid = sorted(set(selected_columns) - TASK_CANDIDATE_COLUMNS)
+    if invalid:
+        raise ValueError(f"Unknown task candidate columns: {', '.join(invalid)}")
+    select_clause = ", ".join(selected_columns)
     with db.connect() as conn:
         rows = conn.execute(
-            """
-            SELECT conversation_id, is_task, first_user_text, cluster_id, cluster_size,
-                   category_label, category_description, importance, selected,
-                   checklist_json, raw_checklists_json
+            f"""
+            SELECT {select_clause}
             FROM task_candidates
             ORDER BY conversation_id
             """
         ).fetchall()
         return [dict(row) for row in rows]
-
