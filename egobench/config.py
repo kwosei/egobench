@@ -122,16 +122,12 @@ model = "text-embedding-3-small"
 # max_family_tasks         Maximum selected tasks from one inferred task family.
 # near_duplicate_threshold Cosine threshold for suppressing repeated variants.
 # long_tail_fraction       Share reserved for strong rare-family coverage.
-# oversample_alpha         Deprecated compatibility knob from the old category
-#                          sampler. It is still parsed but no longer drives
-#                          the default family-aware sampler.
 
 [sample]
 target_n = 100
 max_family_tasks = 5
 near_duplicate_threshold = 0.90
 long_tail_fraction = 0.20
-oversample_alpha = 0.8
 """
 
 
@@ -185,7 +181,6 @@ class SampleCfg:
     max_family_tasks: int = 5
     near_duplicate_threshold: float = 0.90
     long_tail_fraction: float = 0.20
-    oversample_alpha: float = 0.8
 
 
 @dataclass(frozen=True)
@@ -258,7 +253,6 @@ def parse_config(raw: dict[str, Any]) -> EgoBenchConfig:
             max_family_tasks=max_family_tasks,
             near_duplicate_threshold=near_duplicate_threshold,
             long_tail_fraction=long_tail_fraction,
-            oversample_alpha=float(sample_raw.get("oversample_alpha", 0.8)),
         ),
     )
 
@@ -379,6 +373,5 @@ def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
             "max_family_tasks": cfg.sample.max_family_tasks,
             "near_duplicate_threshold": cfg.sample.near_duplicate_threshold,
             "long_tail_fraction": cfg.sample.long_tail_fraction,
-            "oversample_alpha": cfg.sample.oversample_alpha,
         },
     }
