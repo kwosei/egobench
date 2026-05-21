@@ -160,7 +160,7 @@ def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB, console: Console
 def _unit_vectors(vectors: list[list[float]]) -> list[list[float]]:
     normalized: list[list[float]] = []
     for vector in vectors:
-        norm = math.sqrt(sum(float(value) * float(value) for value in vector))
+        norm = np.linalg.norm(vector)
         if not norm:
             normalized.append([0.0 for _ in vector])
             continue
@@ -171,7 +171,7 @@ def _unit_vectors(vectors: list[list[float]]) -> list[list[float]]:
 def _near_duplicate_labels(embeddings: list[list[float]], threshold: float) -> list[int]:
     if not embeddings:
         return []
-    vectors = _unit_vectors(embeddings)
+    vectors = embeddings
     parent = list(range(len(vectors)))
 
     def find(idx: int) -> int:
@@ -189,7 +189,7 @@ def _near_duplicate_labels(embeddings: list[list[float]], threshold: float) -> l
 
     for left in range(len(vectors)):
         for right in range(left + 1, len(vectors)):
-            similarity = sum(a * b for a, b in zip(vectors[left], vectors[right]))
+            similarity = float(np.dot(vectors[left], vectors[right]))
             if similarity >= threshold:
                 union(left, right)
 

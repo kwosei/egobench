@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 
 from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB
 from egobench.llm.factory import make_client
+from egobench.pipeline.json_utils import parse_json_object as _json_object
 
 
 def judge_response(
@@ -41,14 +41,4 @@ def judge_response(
         "weaknesses": [str(item) for item in payload.get("weaknesses", [])],
         "rationale": str(payload.get("rationale", "")),
     }
-
-
-def _json_object(text: str) -> dict:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-        if not match:
-            raise
-        return json.loads(match.group(0))
 

@@ -13,6 +13,7 @@ from egobench.config import EgoBenchConfig
 from egobench.db import DB
 from egobench.llm.factory import make_client
 from egobench.llm.recorded import _label
+from egobench.pipeline.json_utils import parse_json_object as _json_object
 
 
 ANNOTATION_BATCH_SIZE = 8
@@ -419,7 +420,7 @@ def _top_values(values: Iterable[Any]) -> list[str]:
 
 def _family_id(task_family: str, domain: str) -> str:
     payload = f"{_normalized_family_text(domain)}\n{_normalized_family_text(task_family)}"
-    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
     slug = "-".join(_tokens(task_family)[:8]) or "general-assistance"
     return f"{slug}-{digest}"
 
@@ -537,16 +538,6 @@ def _category_description(annotation: dict[str, Any]) -> str:
 def _clean_text(value: Any) -> str:
     text = " ".join(str(value or "").split())
     return text[:200]
-
-
-def _json_object(text: str) -> dict[str, Any]:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-        if not match:
-            raise
-        return json.loads(match.group(0))
 
 
 def _chunks(items: list[Any], size: int) -> Iterable[list[Any]]:

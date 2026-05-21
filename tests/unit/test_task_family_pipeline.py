@@ -334,6 +334,28 @@ def test_phase4_invalid_json_falls_back_gracefully(tmp_path, monkeypatch):
     assert row["specificity"] in {"generalizable", "narrow", "one_off"}
 
 
+def test_phase4_json_object_uses_robust_shared_parser():
+    payload = phase4_categorize._json_object(
+        """
+        ```json
+        {
+          "annotations": [
+            {"conversation_id": "conv-1", "task_family": "French grammar",}
+            {"conversation_id": "conv-2", "task_family": "Python help"}
+          ]
+        }
+        ```
+        """
+    )
+
+    assert payload == {
+        "annotations": [
+            {"conversation_id": "conv-1", "task_family": "French grammar"},
+            {"conversation_id": "conv-2", "task_family": "Python help"},
+        ]
+    }
+
+
 def test_phase5_computes_family_sizes_and_importance(tmp_path):
     db = init_db(tmp_path / "egobench.db")
     _insert_candidates(
