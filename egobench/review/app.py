@@ -19,7 +19,8 @@ class ReviewApp(App):
     #body { height: 1fr; }
     #tasks { width: 34; }
     #editor { width: 1fr; padding: 1; }
-    TextArea { height: 1fr; }
+    #prompt { height: 1fr; }
+    #checklist { height: 1fr; }
     Input { margin: 1 0; }
     Button { margin-right: 1; }
     """
@@ -43,7 +44,7 @@ class ReviewApp(App):
         with Horizontal(id="body"):
             yield ListView(*[ListItem(Static(f"{task.id} · {task.category}")) for task in self.benchmark.tasks], id="tasks")
             with Vertical(id="editor"):
-                yield Static("", id="prompt")
+                yield TextArea("", id="prompt", read_only=True)
                 yield ImportanceSlider(id="importance")
                 yield TextArea(id="checklist")
                 with Horizontal():
@@ -92,7 +93,7 @@ class ReviewApp(App):
         self.current_index = index
         task = self.benchmark.tasks[index]
         prompt = "\n".join(f"{turn.role.upper()}: {turn.text}" for turn in task.turns)
-        self.query_one("#prompt", Static).update(prompt)
+        self.query_one("#prompt", TextArea).load_text(prompt)
         self.query_one("#importance", ImportanceSlider).set_value(task.importance)
         self.query_one("#checklist", TextArea).text = "\n".join(f"- {item}" for item in task.checklist)
 
