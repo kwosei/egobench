@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
@@ -12,7 +13,7 @@ from rich.table import Table
 
 load_dotenv()
 
-from egobench.config import DEFAULT_CONFIG_TEXT, ConfigError, ModelRef, load_config
+from egobench.config import DEFAULT_CONFIG_TEXT, ConfigError, EgoBenchConfig, ModelRef, load_config
 from egobench.cost.estimator import build_estimate, estimate_table, eval_estimate
 from egobench.db import DB, fetch_conversations, init_db
 from egobench.eval.runner import load_benchmark, run_eval
@@ -68,7 +69,7 @@ def ingest(
 ) -> None:
     """Load conversations from an export file or directory."""
     paths, _, db = _workspace()
-    result = run_ingest_phase(db, path, adapter)
+    result = run_ingest_phase(db, path, adapter, console)
     console.print(f"Imported {result['conversations']} conversations via {result['adapter']} into {paths.db}")
 
 
@@ -80,8 +81,14 @@ def build(
 ) -> None:
     """Build benchmark.json from ingested conversations."""
     paths, cfg, db = _workspace()
+    console.print(_build_models_summary(cfg), markup=False)
     task_count = len(fetch_conversations(db))
-    lines = build_estimate(cfg, task_count)
+    lines = build_estimate(
+        cfg,
+        task_count,
+        candidate_group_sizes=_candidate_group_sizes(db),
+        selected_count=_selected_task_count(db),
+    )
     console.print(estimate_table(lines))
     if estimate_only:
         return
@@ -138,7 +145,7 @@ def eval(
         return
     if not yes and sum(line.cost_usd for line in lines) > 0:
         typer.confirm("Continue with eval?", abort=True)
-    result = run_eval(paths, db, cfg, model=candidate, judge_model=judge_ref)
+    result = run_eval(paths, db, cfg, model=candidate, judge_model=judge_ref, console=console)
     console.print(f"Run written: {result['run_dir']}")
     console.print(f"Raw EgoScore: {result['raw_egoscore']:.2f}")
     console.print(f"Freq-weighted EgoScore: {result['frequency_weighted_egoscore']:.2f}")
@@ -199,6 +206,92 @@ def refresh(
 ) -> None:
     """Rebuild the benchmark from currently ingested conversations."""
     build(from_phase=2, estimate_only=False, yes=yes)
+
+
+def _candidate_group_sizes(db: DB) -> list[int] | None:
+    with db.connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT COUNT(*) AS size
+            FROM task_candidates
+            WHERE is_task = 1 AND candidate_group_id IS NOT NULL
+            GROUP BY candidate_group_id
+            """
+        ).fetchall()
+    sizes = [int(row["size"]) for row in rows]
+    return sizes or None
+
+
+def _selected_task_count(db: DB) -> int | None:
+    with db.connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS selected
+            FROM task_candidates
+            WHERE is_task = 1 AND selected = 1
+            """
+        ).fetchone()
+    selected = int(row["selected"] or 0)
+    return selected or None
+
+
+def _build_models_summary(cfg: EgoBenchConfig) -> str:
+    embedding_ref = ModelRef(provider=cfg.embeddings.provider, model=cfg.embeddings.model)
+    rows = [
+        (
+            "phase2 filter",
+            "[filter]",
+            cfg.filter.model_ref,
+            _runtime_note(cfg, cfg.filter.model_ref, missing_key_fallback="recorded fallback"),
+        ),
+        (
+            "phase3 embeddings",
+            "[embeddings]",
+            embedding_ref,
+            _runtime_note(cfg, embedding_ref, missing_key_fallback="deterministic fallback"),
+        ),
+        (
+            "phase4 families",
+            "[judges.default]",
+            cfg.judges.default,
+            _runtime_note(cfg, cfg.judges.default, missing_key_fallback="recorded fallback"),
+        ),
+    ]
+    for idx, ref in enumerate(cfg.judges.checklist_panel, start=1):
+        rows.append(
+            (
+                f"phase7 checklist panel {idx}",
+                "[[judges.checklist_panel]]",
+                ref,
+                _runtime_note(cfg, ref, missing_key_fallback="recorded fallback"),
+            )
+        )
+    rows.append(
+        (
+            "phase7 checklist merge",
+            "[judges.default]",
+            cfg.judges.default,
+            _runtime_note(cfg, cfg.judges.default, missing_key_fallback="recorded fallback"),
+        )
+    )
+
+    lines = ["Build models:"]
+    for part, config_section, ref, runtime in rows:
+        lines.append(f"  {part} ({config_section}): {ref.display()} ({runtime})")
+    return "\n".join(lines)
+
+
+def _runtime_note(cfg: EgoBenchConfig, ref: ModelRef, *, missing_key_fallback: str) -> str:
+    provider = cfg.provider(ref.provider)
+    if provider.api_key_env:
+        if os.environ.get(provider.api_key_env):
+            return f"{provider.api_key_env} set"
+        if provider.api_key_keyring:
+            return f"{provider.api_key_env} unset; keyring configured"
+        return f"{provider.api_key_env} unset; {missing_key_fallback}"
+    if provider.api_key_keyring:
+        return "keyring configured"
+    return "no API key env required"
 
 
 if __name__ == "__main__":

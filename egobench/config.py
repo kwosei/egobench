@@ -90,6 +90,17 @@ model = "claude-opus-4-7"
 provider = "openai"
 model = "gpt-5"
 
+# --- Filter ----------------------------------------------------------------
+#
+# Phase 2 uses a cheap, fast model to classify every conversation as a genuine
+# task (YES) or not (NO). A small model works well here because the question is
+# binary and the prompt is short. Concurrent requests keep it fast even for
+# large datasets. Change this to any declared provider and model you prefer.
+
+[filter]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+
 # --- Embeddings ------------------------------------------------------------
 #
 # `egobench build` embeds your conversations to cluster them by topic. The
@@ -107,13 +118,19 @@ model = "text-embedding-3-small"
 
 # --- Sampling --------------------------------------------------------------
 #
-# target_n         Number of tasks to keep in the final benchmark (1–200).
-# oversample_alpha In (0, 1]. Lower values give rare categories more weight,
-#                  preventing one giant cluster from drowning out the long
-#                  tail. 1.0 = strict proportional sampling.
+# target_n                 Number of tasks to keep in the final benchmark (1–200).
+# max_family_tasks         Maximum selected tasks from one inferred task family.
+# near_duplicate_threshold Cosine threshold for suppressing repeated variants.
+# long_tail_fraction       Share reserved for strong rare-family coverage.
+# oversample_alpha         Deprecated compatibility knob from the old category
+#                          sampler. It is still parsed but no longer drives
+#                          the default family-aware sampler.
 
 [sample]
 target_n = 100
+max_family_tasks = 5
+near_duplicate_threshold = 0.90
+long_tail_fraction = 0.20
 oversample_alpha = 0.8
 """
 
@@ -146,6 +163,11 @@ class WorkspaceCfg:
 
 
 @dataclass(frozen=True)
+class FilterCfg:
+    model_ref: ModelRef
+
+
+@dataclass(frozen=True)
 class JudgesCfg:
     default: ModelRef
     checklist_panel: list[ModelRef] = field(default_factory=list)
@@ -160,6 +182,9 @@ class EmbeddingsCfg:
 @dataclass(frozen=True)
 class SampleCfg:
     target_n: int = 100
+    max_family_tasks: int = 5
+    near_duplicate_threshold: float = 0.90
+    long_tail_fraction: float = 0.20
     oversample_alpha: float = 0.8
 
 
@@ -167,6 +192,7 @@ class SampleCfg:
 class EgoBenchConfig:
     workspace: WorkspaceCfg
     providers: dict[str, ProviderCfg]
+    filter: FilterCfg
     judges: JudgesCfg
     embeddings: EmbeddingsCfg
     sample: SampleCfg
@@ -204,20 +230,34 @@ def load_config(path: Path) -> EgoBenchConfig:
 
 def parse_config(raw: dict[str, Any]) -> EgoBenchConfig:
     providers = _parse_providers(raw.get("providers", {}))
+    filter_cfg = _parse_filter(raw.get("filter"), providers)
     judges = _parse_judges(raw.get("judges"), providers)
     embeddings = _parse_embeddings(raw.get("embeddings"), providers)
 
     workspace_raw = raw.get("workspace", {})
     sample_raw = raw.get("sample", {})
     target_n = max(1, min(200, int(sample_raw.get("target_n", 100))))
+    max_family_tasks = max(1, int(sample_raw.get("max_family_tasks", 5)))
+    near_duplicate_threshold = min(
+        1.0,
+        max(0.0, float(sample_raw.get("near_duplicate_threshold", 0.90))),
+    )
+    long_tail_fraction = min(
+        1.0,
+        max(0.0, float(sample_raw.get("long_tail_fraction", 0.20))),
+    )
 
     return EgoBenchConfig(
         workspace=WorkspaceCfg(seed=int(workspace_raw.get("seed", 42))),
         providers=providers,
+        filter=filter_cfg,
         judges=judges,
         embeddings=embeddings,
         sample=SampleCfg(
             target_n=target_n,
+            max_family_tasks=max_family_tasks,
+            near_duplicate_threshold=near_duplicate_threshold,
+            long_tail_fraction=long_tail_fraction,
             oversample_alpha=float(sample_raw.get("oversample_alpha", 0.8)),
         ),
     )
@@ -242,6 +282,23 @@ def _parse_providers(raw: dict[str, Any]) -> dict[str, ProviderCfg]:
             base_url=values.get("base_url"),
         )
     return out
+
+
+def _parse_filter(raw: Any, providers: dict[str, ProviderCfg]) -> FilterCfg:
+    if raw is None:
+        return _default_filter(providers)
+    if not isinstance(raw, dict):
+        raise ConfigError("[filter] must be a table.")
+    return FilterCfg(model_ref=_parse_model_ref(raw, providers, "[filter]"))
+
+
+def _default_filter(providers: dict[str, ProviderCfg]) -> FilterCfg:
+    if "anthropic" in providers:
+        return FilterCfg(ModelRef(provider="anthropic", model="claude-haiku-4-5-20251001"))
+    if "openai" in providers:
+        return FilterCfg(ModelRef(provider="openai", model="gpt-4o-mini"))
+    first = next(iter(providers), None)
+    return FilterCfg(ModelRef(provider=first or "anthropic", model="claude-haiku-4-5-20251001"))
 
 
 def _parse_model_ref(raw: Any, providers: dict[str, ProviderCfg], where: str) -> ModelRef:
@@ -311,10 +368,17 @@ def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
 
     return {
         "workspace": {"seed": cfg.workspace.seed},
+        "filter": {"provider": cfg.filter.model_ref.provider, "model": cfg.filter.model_ref.model},
         "judges": {
             "default": _ref(cfg.judges.default),
             "checklist_panel": [_ref(ref) for ref in cfg.judges.checklist_panel],
         },
         "embeddings": {"provider": cfg.embeddings.provider, "model": cfg.embeddings.model},
-        "sample": {"target_n": cfg.sample.target_n, "oversample_alpha": cfg.sample.oversample_alpha},
+        "sample": {
+            "target_n": cfg.sample.target_n,
+            "max_family_tasks": cfg.sample.max_family_tasks,
+            "near_duplicate_threshold": cfg.sample.near_duplicate_threshold,
+            "long_tail_fraction": cfg.sample.long_tail_fraction,
+            "oversample_alpha": cfg.sample.oversample_alpha,
+        },
     }

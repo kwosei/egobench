@@ -4,7 +4,8 @@ import json
 import re
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+
+from rich.console import Console
 
 from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB, latest_benchmark_hash
@@ -16,17 +17,31 @@ from egobench.pipeline.schema import Benchmark, BenchmarkTask
 from egobench.reporting.html import render_reports
 
 
-def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: ModelRef, judge_model: ModelRef) -> dict:
+def run_eval(
+    paths: WorkspacePaths,
+    db: DB,
+    cfg: EgoBenchConfig,
+    *,
+    model: ModelRef,
+    judge_model: ModelRef,
+    console: Console | None = None,
+) -> dict:
+    console = console or Console()
     benchmark = load_benchmark(paths)
     expected_hash = latest_benchmark_hash(db)
     if expected_hash and expected_hash != benchmark.metadata.benchmark_hash:
         raise RuntimeError("benchmark.json does not match the latest SQLite benchmark snapshot.")
 
+    total = len(benchmark.tasks)
+    console.print(
+        f"[dim]eval: running {total} tasks with {model.display()}; judging with {judge_model.display()}[/dim]"
+    )
     started = time.monotonic()
     before_cost_id = _max_cost_id(db)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = paths.runs_dir / _safe_model_name(model.display()) / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[dim]eval: writing run artifacts to {run_dir}[/dim]")
 
     score_rows: list[dict] = []
     with (
@@ -35,9 +50,11 @@ def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: Model
         (run_dir / "scores.jsonl").open("a", encoding="utf-8") as scores_file,
         (run_dir / "rationales.jsonl").open("a", encoding="utf-8") as rationales_file,
     ):
-        for task in benchmark.tasks:
+        for idx, task in enumerate(benchmark.tasks, start=1):
             prompt = task_prompt(task)
+            console.print(f"[dim]eval: [{idx}/{total}] answering {task.id} with {model.display()}[/dim]")
             response = answer_task(db, cfg, model, task)
+            console.print(f"[dim]eval: [{idx}/{total}] judging {task.id} with {judge_model.display()}[/dim]")
             judged = judge_response(
                 db=db,
                 cfg=cfg,
@@ -68,6 +85,7 @@ def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: Model
             scores_file.flush()
             rationales_file.flush()
             score_rows.append(score_row)
+            console.print(f"[dim]eval: [{idx}/{total}] wrote results for {task.id} (score {judged['score']})[/dim]")
 
     summary = compute_scores(score_rows)
     cost_usd = _cost_since(db, before_cost_id)
@@ -84,7 +102,13 @@ def run_eval(paths: WorkspacePaths, db: DB, cfg: EgoBenchConfig, *, model: Model
         "created_at": timestamp,
     }
     (run_dir / "summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    console.print(f"[dim]eval: wrote summary to {run_dir / 'summary.json'}[/dim]")
+    console.print("[dim]eval: regenerating reports[/dim]")
     render_reports(paths)
+    console.print(
+        f"[dim]eval: completed {len(score_rows)} tasks; raw={summary.raw:.2f}, "
+        f"weighted={summary.frequency_weighted:.2f}, cost=${cost_usd:.4f}[/dim]"
+    )
     return {"run_dir": str(run_dir), **payload}
 
 
@@ -128,4 +152,3 @@ def _cost_since(db: DB, cost_id: int) -> float:
             (cost_id,),
         ).fetchone()
         return float(row["cost"] or 0.0)
-

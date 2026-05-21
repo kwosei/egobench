@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, ListItem, ListView, Static, TextArea
+from textual.widgets import Button, Footer, Header, Label, ListItem, ListView, Rule, Static, TextArea
 
 from egobench.config import EgoBenchConfig
 from egobench.db import DB
@@ -19,7 +19,10 @@ class ReviewApp(App):
     #body { height: 1fr; }
     #tasks { width: 34; }
     #editor { width: 1fr; padding: 1; }
-    TextArea { height: 1fr; }
+    #prompt { height: 1fr; }
+    #checklist { height: 1fr; }
+    .section-header { color: $accent; text-style: bold; margin-top: 1; }
+    Rule { margin: 0; }
     Input { margin: 1 0; }
     Button { margin-right: 1; }
     """
@@ -43,7 +46,11 @@ class ReviewApp(App):
         with Horizontal(id="body"):
             yield ListView(*[ListItem(Static(f"{task.id} · {task.category}")) for task in self.benchmark.tasks], id="tasks")
             with Vertical(id="editor"):
-                yield Static("", id="prompt")
+                yield Label("TASK", classes="section-header")
+                yield Rule()
+                yield TextArea("", id="prompt", read_only=True)
+                yield Label("CHECKLIST", classes="section-header")
+                yield Rule()
                 yield ImportanceSlider(id="importance")
                 yield TextArea(id="checklist")
                 with Horizontal():
@@ -92,7 +99,7 @@ class ReviewApp(App):
         self.current_index = index
         task = self.benchmark.tasks[index]
         prompt = "\n".join(f"{turn.role.upper()}: {turn.text}" for turn in task.turns)
-        self.query_one("#prompt", Static).update(prompt)
+        self.query_one("#prompt", TextArea).load_text(prompt)
         self.query_one("#importance", ImportanceSlider).set_value(task.importance)
         self.query_one("#checklist", TextArea).text = "\n".join(f"- {item}" for item in task.checklist)
 

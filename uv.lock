@@ -179,6 +179,7 @@ name = "egobench"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "hdbscan" },
     { name = "jinja2" },
     { name = "keyring" },
     { name = "numpy" },
@@ -191,14 +192,9 @@ dependencies = [
     { name = "typer" },
 ]
 
-[package.optional-dependencies]
-cluster = [
-    { name = "hdbscan" },
-]
-
 [package.metadata]
 requires-dist = [
-    { name = "hdbscan", marker = "extra == 'cluster'", specifier = ">=0.8.38" },
+    { name = "hdbscan", specifier = ">=0.8.38" },
     { name = "jinja2", specifier = ">=3.1.4" },
     { name = "keyring", specifier = ">=25.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },
@@ -210,7 +206,7 @@ requires-dist = [
     { name = "textual", specifier = ">=0.86.0" },
     { name = "typer", specifier = ">=0.12.3" },
 ]
-provides-extras = ["cluster", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "h11"
