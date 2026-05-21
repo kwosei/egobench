@@ -94,7 +94,7 @@ e.g. eval your benchmark against Google Gemma 4 running locally via LM Studio.
 uv run egobench eval --provider lmstudio --model google/gemma-4-e4b
 ```
 
-The candidate model answers each task in the current `benchmark.json`. The judge scores those answers with the task checklist. Each eval writes a run directory under `egobench-workspace/runs/` and updates the local report.
+The candidate model answers each task in the current `benchmark.json`. The judge scores those answers with the task checklist on a 1–10 scale. Each eval writes a run directory under `egobench-workspace/runs/` and updates the local report. For a full explanation of how individual scores are computed and aggregated into EgoScore, see [EgoBench Scoring](docs/scoring.md).
 
 By default, eval uses `[judges.default]`. To override the judge for one run:
 
@@ -116,7 +116,7 @@ uv run egobench cost
 open egobench-workspace/report.html
 ```
 
-- `leaderboard` prints local runs ranked by EgoScore.
+- `leaderboard` prints local runs ranked by EgoScore (frequency-weighted; see [EgoBench Scoring](docs/scoring.md)).
 - `report` regenerates `report.html` and `report.md` from existing runs.
 - `cost` summarizes the local cost ledger by phase and model.
 - `report.html` is the easiest way to inspect scores, task families, and run details.
