@@ -12,7 +12,8 @@ from egobench.reporting.radar import bar_svg, radar_svg
 
 
 HTML_TEMPLATE = Template(
-    """<!doctype html>
+    autoescape=True,
+    source="""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
