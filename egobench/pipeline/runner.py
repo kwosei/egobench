@@ -100,6 +100,7 @@ class PipelineCtx:
 class PhaseStep:
     num: int
     name: str
+    label: str
     input_factory: Callable[[PipelineCtx], dict]
     runner: Callable[[PipelineCtx], dict]
 
@@ -119,42 +120,49 @@ def _phase_steps() -> tuple[PhaseStep, ...]:
         PhaseStep(
             2,
             "phase2",
+            "filter non-task conversations",
             lambda ctx: {"conversations": fetch_conversations(ctx.db)},
             lambda ctx: phase2_drop_nontasks.run(ctx.db, ctx.cfg, ctx.console),
         ),
         PhaseStep(
             3,
             "phase3",
+            "embed and cluster task candidates",
             lambda ctx: {"tasks": state_rows(ctx.db, PHASE3_INPUT_COLUMNS)},
             lambda ctx: phase3_embed_cluster.run(ctx.db, ctx.cfg, ctx.console),
         ),
         PhaseStep(
             4,
             "phase4",
+            "label task families",
             lambda ctx: {"clusters": state_rows(ctx.db, PHASE4_INPUT_COLUMNS)},
             lambda ctx: phase4_categorize.run(ctx.db, ctx.cfg, ctx.console),
         ),
         PhaseStep(
             5,
             "phase5",
+            "score family importance",
             lambda ctx: {"categorized": state_rows(ctx.db, PHASE5_INPUT_COLUMNS)},
             lambda ctx: phase5_importance.run(ctx.db, ctx.console),
         ),
         PhaseStep(
             6,
             "phase6",
+            "sample benchmark tasks",
             lambda ctx: {"scored": state_rows(ctx.db, PHASE6_INPUT_COLUMNS)},
             lambda ctx: phase6_sample.run(ctx.db, ctx.cfg, ctx.console),
         ),
         PhaseStep(
             7,
             "phase7",
+            "draft and merge task checklists",
             lambda ctx: {"selected": state_rows(ctx.db, PHASE7_INPUT_COLUMNS)},
             lambda ctx: phase7_checklist.run(ctx.db, ctx.cfg, ctx.console),
         ),
         PhaseStep(
             8,
             "phase8",
+            "lock benchmark files",
             lambda ctx: {"checked": state_rows(ctx.db, PHASE8_INPUT_COLUMNS)},
             lambda ctx: phase8_lock.run(ctx.db, ctx.cfg, ctx.paths, ctx.console),
         ),
@@ -171,10 +179,10 @@ def _run_cached(
     if from_phase is not None and step.num < from_phase:
         cached = read_cache(ctx.db, step.name, cache_key)
         if cached is not None:
-            ctx.console.print(f"[dim]Skipping {step.name}; cache key matched.[/dim]")
+            ctx.console.print(f"[dim]Skipping {step.name} ({step.label}); cache key matched.[/dim]")
             return cached
         ctx.console.print(
-            f"[dim]Skipping {step.name}; before --from {from_phase} "
+            f"[dim]Skipping {step.name} ({step.label}); before --from {from_phase} "
             "(cache miss, using existing workspace state).[/dim]"
         )
         return {"phase": step.num, "skipped": True}
@@ -182,13 +190,13 @@ def _run_cached(
     if from_phase is None:
         cached = read_cache(ctx.db, step.name, cache_key)
         if cached is not None:
-            ctx.console.print(f"[dim]Skipping {step.name}; cache key matched.[/dim]")
+            ctx.console.print(f"[dim]Skipping {step.name} ({step.label}); cache key matched.[/dim]")
             return cached
-    ctx.console.print(f"Running {step.name}...")
+    ctx.console.print(f"Phase {step.num}/8: {step.label} ({step.name})")
     output = step.runner(ctx)
     write_cache(ctx.db, step.name, cache_key, output)
     _write_cache_file(ctx, step.name, cache_key, output)
-    ctx.console.print(f"[dim]Completed {step.name}: {_summary(output)}[/dim]")
+    ctx.console.print(f"[dim]Completed {step.name} ({step.label}): {_summary(output)}[/dim]")
     return output
 
 

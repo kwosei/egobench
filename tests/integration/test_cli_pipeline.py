@@ -33,7 +33,7 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     assert "phase3 embeddings" in result.output
     assert "recorded fallback" in result.output
     assert "deterministic fallback" in result.output
-    assert "Running phase2" in result.output
+    assert "Phase 2/8: filter non-task conversations (phase2)" in result.output
     assert "phase2: scanning 10 conversations" in result.output
     assert "phase3: embedding and clustering 8 tasks" in result.output
     assert "Completed phase3" in result.output
@@ -44,8 +44,8 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["build", "--from", "3", "--yes"])
     assert result.exit_code == 0, result.output
-    assert "Skipping phase2; cache key matched." in result.output
-    assert "Running phase3" in result.output
+    assert "Skipping phase2 (filter non-task conversations); cache key matched." in result.output
+    assert "Phase 3/8: embed and cluster task candidates (phase3)" in result.output
     assert "Completed phase8" in result.output
     second = benchmark_path.read_text()
     assert '"task_count": 8' in second
@@ -66,8 +66,8 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     result = runner.invoke(app, ["build", "--from", "7", "--yes"])
     assert result.exit_code == 0, result.output
     assert "Skipping phase4" in result.output
-    assert "Running phase7" in result.output
-    assert "Running phase4" not in result.output
+    assert "Phase 7/8: draft and merge task checklists (phase7)" in result.output
+    assert "Phase 4/8" not in result.output
 
     first_hash = _hash_from_text(first)
     second_hash = _hash_from_text(second)
@@ -91,6 +91,49 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     result = runner.invoke(app, ["leaderboard"])
     assert result.exit_code == 0, result.output
     assert "openai:gpt-5" in result.output
+
+
+def test_cli_status_help_and_expected_errors(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "EgoBench Status" in result.output
+    assert "Workspace" in result.output
+    assert "missing" in result.output
+    assert "Next: `egobench init`" in result.output
+
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+    assert "Environment: shell only; no .env at" in result.output
+    assert "Next: add API keys to .env if needed" in result.output
+
+    result = runner.invoke(app, ["build", "--yes"])
+    assert result.exit_code == 1, result.output
+    assert "No conversations found." in result.output
+    assert "Traceback" not in result.output
+
+    result = runner.invoke(app, ["eval", "--provider", "openai", "--model", "gpt-5", "--dry-run"])
+    assert result.exit_code == 1, result.output
+    assert "No benchmark.json found." in result.output
+    assert "Traceback" not in result.output
+
+    result = runner.invoke(app, ["ingest", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "[auto|chatgpt|claude|jsonl]" in result.output
+
+    result = runner.invoke(app, ["eval", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "Provider key from egobench.toml" in result.output
+    assert "--dry-run" in result.output
+    assert "key in )." not in result.output
+
+    result = runner.invoke(app, ["review", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--port" not in result.output
 
 
 def _hash_from_text(text: str) -> str:
