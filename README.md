@@ -54,6 +54,44 @@ Use `--adapter auto` when you want EgoBench to detect the format. Ingestion norm
 
 JSONL input should contain one conversation per line with an `id` and `turns`, where each turn has a `role` and either `text` or `content`.
 
+#### Optional PII redaction at ingest
+
+To keep personal identifiers out of the local database and out of later build-time model calls, enable ingest-time redaction in `egobench-workspace/egobench.toml` or pass `--redact-pii`:
+
+```toml
+[privacy]
+enabled = true
+backend = "transformers"
+model = "openai/privacy-filter"
+score_threshold = 0.5
+replacement = "[{label}]"
+```
+
+Install the local model runtime before using the `transformers` backend:
+
+```bash
+uv sync --extra privacy
+uv run egobench ingest ~/Downloads/chatgpt-export.json --adapter chatgpt --redact-pii
+```
+
+The OpenAI Privacy Filter is a Hugging Face token-classification model, so it is not served through LM Studio's chat-completions endpoint. If you prefer to run the model as a separate local process, start the included stdlib HTTP server:
+
+```bash
+uv sync --extra privacy
+uv run python scripts/privacy_filter_server.py --port 8755
+```
+
+Then configure:
+
+```toml
+[privacy]
+enabled = true
+backend = "endpoint"
+endpoint_url = "http://localhost:8755/redact"
+```
+
+Endpoint mode accepts `{"text": "..."}` and expects either `{"redacted_text": "..."}` or `{"spans": [{"start": 0, "end": 5, "label": "private_person"}]}`. For quick offline protection without extra dependencies, `backend = "regex"` redacts common emails, phone numbers, URLs, addresses, account-like numbers, and secrets.
+
 ### 6. Build the benchmark
 
 ```bash

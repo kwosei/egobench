@@ -39,12 +39,34 @@ def test_parses_provider_blocks():
     assert cfg.providers["anthropic"].base_url == "https://api.anthropic.com/v1/"
     assert cfg.providers["openrouter"].base_url == "https://openrouter.ai/api/v1"
     assert cfg.providers["lmstudio"].api_key_env is None
+    assert cfg.privacy.enabled is False
+    assert cfg.privacy.backend == "transformers"
 
 
 def test_judges_parse_as_model_refs():
     cfg = _cfg()
     assert cfg.judges.default == ModelRef(provider="anthropic", model="claude-opus-4-7")
     assert [r.provider for r in cfg.judges.checklist_panel] == ["anthropic", "openai"]
+
+
+def test_parses_privacy_config():
+    cfg = parse_config(
+        {
+            **PROVIDERS_TOML,
+            "privacy": {
+                "enabled": True,
+                "backend": "regex",
+                "model": "openai/privacy-filter",
+                "score_threshold": 0.65,
+                "replacement": "<{label}>",
+            },
+        }
+    )
+
+    assert cfg.privacy.enabled is True
+    assert cfg.privacy.backend == "regex"
+    assert cfg.privacy.score_threshold == 0.65
+    assert cfg.privacy.replacement == "<{label}>"
 
 
 def test_unknown_provider_in_judge_raises():

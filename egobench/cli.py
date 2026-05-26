@@ -66,11 +66,20 @@ def init(
 def ingest(
     path: Annotated[Path, typer.Argument(exists=True, readable=True)],
     adapter: Annotated[str, typer.Option("--adapter", help="auto, chatgpt, claude, or jsonl")] = "auto",
+    redact_pii: Annotated[bool, typer.Option("--redact-pii", help="Enable privacy redaction for this ingest.")] = False,
+    no_redact_pii: Annotated[bool, typer.Option("--no-redact-pii", help="Disable privacy redaction for this ingest.")] = False,
 ) -> None:
     """Load conversations from an export file or directory."""
-    paths, _, db = _workspace()
-    result = run_ingest_phase(db, path, adapter, console)
+    if redact_pii and no_redact_pii:
+        raise typer.BadParameter("Use only one of --redact-pii or --no-redact-pii.")
+    paths, cfg, db = _workspace()
+    privacy = replace(cfg.privacy, enabled=True) if redact_pii else cfg.privacy
+    if no_redact_pii:
+        privacy = replace(privacy, enabled=False)
+    result = run_ingest_phase(db, path, adapter, console, privacy)
     console.print(f"Imported {result['conversations']} conversations via {result['adapter']} into {paths.db}")
+    if result.get("redactions"):
+        console.print(f"Redacted {result['redactions']} PII spans before import.")
 
 
 @app.command()

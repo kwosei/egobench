@@ -20,6 +20,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = []
+privacy = [
+  "torch>=2.4.0",
+  "transformers>=5.9.0",
+]
 
 [project.scripts]
 egobench = "egobench.cli:app"

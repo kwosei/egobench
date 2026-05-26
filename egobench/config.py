@@ -116,6 +116,32 @@ model = "claude-haiku-4-5-20251001"
 provider = "openai"
 model = "text-embedding-3-small"
 
+# --- Privacy redaction -----------------------------------------------------
+#
+# Optional ingest-time PII redaction. When enabled, EgoBench redacts text before
+# it is written to SQLite or sent to any model during `build`.
+#
+# The OpenAI Privacy Filter is a Hugging Face token-classification model, not an
+# OpenAI-compatible chat endpoint. Use backend = "transformers" to run it
+# in-process, or backend = "endpoint" to call a small local redaction service.
+# backend = "regex" is dependency-free but only catches common structured PII.
+#
+# Install the local Transformers backend with:
+#
+#   uv sync --extra privacy
+#
+# [privacy]
+# enabled = true
+# backend = "transformers"
+# model = "openai/privacy-filter"
+# score_threshold = 0.5
+# replacement = "[{label}]"
+# endpoint_url = "http://localhost:8755/redact"
+#
+# You can start the bundled local endpoint with:
+#
+#   uv run python scripts/privacy_filter_server.py --port 8755
+
 # --- Sampling --------------------------------------------------------------
 #
 # target_n                 Number of tasks to keep in the final benchmark (1–200).
@@ -176,6 +202,17 @@ class EmbeddingsCfg:
 
 
 @dataclass(frozen=True)
+class PrivacyCfg:
+    enabled: bool = False
+    backend: str = "transformers"
+    model: str = "openai/privacy-filter"
+    score_threshold: float = 0.5
+    replacement: str = "[{label}]"
+    endpoint_url: str | None = None
+    timeout_s: float = 30.0
+
+
+@dataclass(frozen=True)
 class SampleCfg:
     target_n: int = 100
     max_family_tasks: int = 5
@@ -191,6 +228,7 @@ class EgoBenchConfig:
     judges: JudgesCfg
     embeddings: EmbeddingsCfg
     sample: SampleCfg
+    privacy: PrivacyCfg = field(default_factory=PrivacyCfg)
 
     def provider(self, name: str) -> ProviderCfg:
         if name not in self.providers:
@@ -228,6 +266,7 @@ def parse_config(raw: dict[str, Any]) -> EgoBenchConfig:
     filter_cfg = _parse_filter(raw.get("filter"), providers)
     judges = _parse_judges(raw.get("judges"), providers)
     embeddings = _parse_embeddings(raw.get("embeddings"), providers)
+    privacy = _parse_privacy(raw.get("privacy"))
 
     workspace_raw = raw.get("workspace", {})
     sample_raw = raw.get("sample", {})
@@ -254,6 +293,7 @@ def parse_config(raw: dict[str, Any]) -> EgoBenchConfig:
             near_duplicate_threshold=near_duplicate_threshold,
             long_tail_fraction=long_tail_fraction,
         ),
+        privacy=privacy,
     )
 
 
@@ -356,6 +396,41 @@ def _parse_embeddings(raw: Any, providers: dict[str, ProviderCfg]) -> Embeddings
     return EmbeddingsCfg(provider=str(provider), model=str(model))
 
 
+def _parse_privacy(raw: Any) -> PrivacyCfg:
+    if raw is None:
+        return PrivacyCfg()
+    if not isinstance(raw, dict):
+        raise ConfigError("[privacy] must be a table.")
+    enabled = _parse_bool(raw.get("enabled", False), "[privacy].enabled")
+    backend = str(raw.get("backend", "transformers")).strip().lower()
+    if backend not in {"transformers", "endpoint", "regex"}:
+        raise ConfigError("[privacy].backend must be 'transformers', 'endpoint', or 'regex'.")
+    endpoint_url = raw.get("endpoint_url")
+    if endpoint_url is not None:
+        endpoint_url = str(endpoint_url).strip()
+    return PrivacyCfg(
+        enabled=enabled,
+        backend=backend,
+        model=str(raw.get("model", "openai/privacy-filter")),
+        score_threshold=min(1.0, max(0.0, float(raw.get("score_threshold", 0.5)))),
+        replacement=str(raw.get("replacement", "[{label}]")),
+        endpoint_url=endpoint_url or None,
+        timeout_s=max(0.1, float(raw.get("timeout_s", 30.0))),
+    )
+
+
+def _parse_bool(value: Any, where: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ConfigError(f"{where} must be a boolean.")
+
+
 def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
     def _ref(ref: ModelRef) -> dict[str, str]:
         return {"provider": ref.provider, "model": ref.model}
@@ -368,6 +443,14 @@ def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
             "checklist_panel": [_ref(ref) for ref in cfg.judges.checklist_panel],
         },
         "embeddings": {"provider": cfg.embeddings.provider, "model": cfg.embeddings.model},
+        "privacy": {
+            "enabled": cfg.privacy.enabled,
+            "backend": cfg.privacy.backend,
+            "model": cfg.privacy.model,
+            "score_threshold": cfg.privacy.score_threshold,
+            "replacement": cfg.privacy.replacement,
+            "endpoint_url": cfg.privacy.endpoint_url,
+        },
         "sample": {
             "target_n": cfg.sample.target_n,
             "max_family_tasks": cfg.sample.max_family_tasks,
