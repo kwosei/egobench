@@ -1,6 +1,6 @@
 # EgoBench
 
-EgoBench is a local CLI that turns exported chat history into a personal LLM benchmark. It ingests ChatGPT, Claude, or generic JSONL exports, discovers recurring task families from your actual chats, builds a versioned benchmark with per-task checklists, evaluates candidate models against it, and renders local HTML/Markdown reports.
+EgoBench is a local CLI that turns exported chat history into a personal LLM benchmark. It ingests ChatGPT, Claude, or generic JSONL exports, discovers recurring task families from your actual chats, builds a versioned benchmark with per-task checklists, evaluates candidate models against it, and renders local HTML/Markdown reports. [Here](https://kojo.blog/egobench/) is the motivation for this project.
 
 All project state lives under `./egobench-workspace/` in the directory where you run the CLI. API keys are loaded from your shell environment or from `./.env` in the current working directory; they are not written into the workspace.
 
