@@ -7,6 +7,7 @@ from rich.console import Console
 
 from egobench.config import EgoBenchConfig
 from egobench.db import DB, fetch_conversations
+from egobench.llm.pricing import PricingResolver
 from egobench.paths import WorkspacePaths
 from egobench.pipeline import (
     phase2_drop_nontasks,
@@ -94,6 +95,7 @@ class PipelineCtx:
     db: DB
     cfg: EgoBenchConfig
     console: Console
+    pricing: PricingResolver | None = None
 
 
 @dataclass(frozen=True)
@@ -122,21 +124,21 @@ def _phase_steps() -> tuple[PhaseStep, ...]:
             "phase2",
             "filter non-task conversations",
             lambda ctx: {"conversations": fetch_conversations(ctx.db)},
-            lambda ctx: phase2_drop_nontasks.run(ctx.db, ctx.cfg, ctx.console),
+            lambda ctx: phase2_drop_nontasks.run(ctx.db, ctx.cfg, ctx.console, pricing=ctx.pricing),
         ),
         PhaseStep(
             3,
             "phase3",
             "embed and cluster task candidates",
             lambda ctx: {"tasks": state_rows(ctx.db, PHASE3_INPUT_COLUMNS)},
-            lambda ctx: phase3_embed_cluster.run(ctx.db, ctx.cfg, ctx.console),
+            lambda ctx: phase3_embed_cluster.run(ctx.db, ctx.cfg, ctx.console, pricing=ctx.pricing),
         ),
         PhaseStep(
             4,
             "phase4",
             "label task families",
             lambda ctx: {"clusters": state_rows(ctx.db, PHASE4_INPUT_COLUMNS)},
-            lambda ctx: phase4_categorize.run(ctx.db, ctx.cfg, ctx.console),
+            lambda ctx: phase4_categorize.run(ctx.db, ctx.cfg, ctx.console, pricing=ctx.pricing),
         ),
         PhaseStep(
             5,
@@ -157,7 +159,7 @@ def _phase_steps() -> tuple[PhaseStep, ...]:
             "phase7",
             "draft and merge task checklists",
             lambda ctx: {"selected": state_rows(ctx.db, PHASE7_INPUT_COLUMNS)},
-            lambda ctx: phase7_checklist.run(ctx.db, ctx.cfg, ctx.console),
+            lambda ctx: phase7_checklist.run(ctx.db, ctx.cfg, ctx.console, pricing=ctx.pricing),
         ),
         PhaseStep(
             8,

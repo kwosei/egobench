@@ -116,6 +116,13 @@ Preview eval cost and routing first:
 uv run egobench eval --model lmstudio/google/gemma-4-e4b --dry-run
 ```
 
+Cost estimates are best-effort. EgoBench first applies any `[[pricing.models]]`
+overrides in `egobench-workspace/egobench.toml`, then uses cached public pricing
+catalogs from OpenRouter and LiteLLM when available, and finally falls back to a
+small built-in/family estimate. Approximate rows are marked with `≈`; unknown
+rows are labeled `unknown`. See [EgoBench Pricing Estimates](docs/pricing.md)
+for cache behavior, override syntax, and limitations.
+
 CLI model refs use `provider/model-id`; if the model id itself contains slashes, everything after the first slash is passed through unchanged. By default, eval scores with `[judges.default]`. To score with a panel of judges and average their scores, pass `--judge provider/model-id` once per judge — repeating it builds the panel and overrides any configured `[[judges.scoring_panel]]`:
 
 ```bash
@@ -139,7 +146,7 @@ open egobench-workspace/report.html
 
 - `leaderboard` prints local runs ranked by EgoScore (frequency-weighted; see [EgoBench Scoring](docs/scoring.md)).
 - `report` regenerates `report.html` and `report.md` from existing runs.
-- `cost` summarizes the local cost ledger by phase and model.
+- `cost` summarizes the local cost ledger by phase and model. Cost ledger values use the same best-effort pricing resolver as dry-run estimates.
 - `report.html` is the easiest way to inspect scores, task families, and run details.
 
 ## Command reference
@@ -169,6 +176,7 @@ open egobench-workspace/report.html
     |-- benchmark.json
     |-- benchmark_vN.json
     |-- cache/
+    |   `-- pricing/
     |-- runs/
     |-- report.html
     `-- report.md

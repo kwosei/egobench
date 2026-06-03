@@ -12,6 +12,7 @@ from egobench.db import DB, latest_benchmark_hash
 from egobench.eval.judge import judge_response_panel
 from egobench.eval.score import compute_scores
 from egobench.llm.factory import make_client
+from egobench.llm.pricing import PricingResolver
 from egobench.paths import WorkspacePaths
 from egobench.pipeline.schema import Benchmark, BenchmarkTask
 from egobench.reporting.html import render_reports
@@ -25,6 +26,7 @@ def run_eval(
     model: ModelRef,
     judge_models: list[ModelRef],
     console: Console | None = None,
+    pricing: PricingResolver | None = None,
 ) -> dict:
     console = console or Console()
     benchmark = load_benchmark(paths)
@@ -55,7 +57,7 @@ def run_eval(
         for idx, task in enumerate(benchmark.tasks, start=1):
             prompt = task_prompt(task)
             console.print(f"[dim]eval: [{idx}/{total}] answering {task.id} with {model.display()}[/dim]")
-            response = answer_task(db, cfg, model, task)
+            response = answer_task(db, cfg, model, task, pricing=pricing)
             console.print(
                 f"[dim]eval: [{idx}/{total}] judging {task.id} with {len(judge_models)} judge(s)[/dim]"
             )
@@ -67,6 +69,7 @@ def run_eval(
                 checklist=task.checklist,
                 response=response,
                 aggregate=aggregate,
+                pricing=pricing,
             )
             score_row = {
                 "task_id": task.id,
@@ -130,8 +133,15 @@ def task_prompt(task: BenchmarkTask) -> str:
     return "\n".join(f"{turn.role.upper()}: {turn.text}" for turn in task.turns)
 
 
-def answer_task(db: DB, cfg: EgoBenchConfig, model: ModelRef, task: BenchmarkTask) -> str:
-    client = make_client(model, cfg, db, "eval-answer")
+def answer_task(
+    db: DB,
+    cfg: EgoBenchConfig,
+    model: ModelRef,
+    task: BenchmarkTask,
+    *,
+    pricing: PricingResolver | None = None,
+) -> str:
+    client = make_client(model, cfg, db, "eval-answer", pricing=pricing)
     prompt = task_prompt(task)
     if cfg.api_key_for(model):
         completion = client.complete(prompt)

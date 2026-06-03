@@ -4,6 +4,8 @@ This document is the end-to-end map of what EgoBench does, which models are invo
 
 Model names below are the default examples from `egobench.toml`. The actual model used depends on the workspace config and CLI arguments.
 
+Cost estimates and runtime cost ledger entries are best-effort. See [EgoBench Pricing Estimates](pricing.md) for the pricing resolver order, cache path, override syntax, and limitations.
+
 ## Walkthrough: a worked example through every phase
 
 To make the pipeline concrete, the diagram and trace below follow a small set of ingested turns from raw input to locked benchmark.
@@ -86,6 +88,8 @@ The table below is the same flow as the diagram, but expanded with the model, in
 | 18 | Eval summary | Computes raw EgoScore, frequency-weighted EgoScore, per-family/category means, run cost, and wall time. | None | Eval score rows and cost log | `summary.json` |
 | 19 | `egobench report` and `egobench leaderboard` | Renders local reports and prints local run rankings. | None | Run summaries, task details, benchmark metadata | `report.html`, `report.md`, terminal leaderboard |
 
+Cost log rows are written by phases that make real model calls. They use the same pricing resolver as dry-run estimates: config overrides first, then cached public catalogs, then built-in or rough estimates, then `unknown`.
+
 ## Model Routing
 
 The main model knobs are:
@@ -101,6 +105,8 @@ The main model knobs are:
 | `egobench eval --judge provider/model-id` | Eval scoring judge(s); repeat for a panel; overrides config | User supplied |
 
 If a provider declares `api_key_env` and that environment variable is missing, EgoBench uses the deterministic recorded fallback client. That is useful for tests and smoke runs, but it means no real model API is being called.
+
+If a provider declares no `api_key_env` or `api_key_keyring`, EgoBench treats it as local or unauthenticated for cost purposes and estimates it at zero unless you add explicit pricing overrides.
 
 ## Family Grouping
 

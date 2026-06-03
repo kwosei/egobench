@@ -12,7 +12,7 @@ from egobench.ingest.base import first_user_text
 from egobench.ingest.base import Turn as IngestTurn
 from egobench.llm.base import Completion
 from egobench.llm.factory import make_client
-from egobench.llm.pricing import estimate_cost
+from egobench.llm.pricing import PricingResolver, estimate_cost
 
 
 ACKS = {
@@ -38,7 +38,13 @@ _PROMPT = (
 )
 
 
-def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+def run(
+    db: DB,
+    cfg: EgoBenchConfig,
+    console: Console | None = None,
+    *,
+    pricing: PricingResolver | None = None,
+) -> dict:
     console = console or Console()
     conversations = fetch_conversations(db)
     console.print(f"[dim]phase2: scanning {len(conversations)} conversations[/dim]")
@@ -83,7 +89,13 @@ def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
             model_name = billable[0].model
             total_in = sum(c.usage.input_tokens for c in billable)
             total_out = sum(c.usage.output_tokens for c in billable)
-            cost = estimate_cost(model_name, total_in, total_out)
+            cost = estimate_cost(
+                model_name,
+                total_in,
+                total_out,
+                provider=cfg.filter.model_ref.provider,
+                resolver=pricing,
+            )
             conn.execute(
                 """
                 INSERT INTO phase_cost_log(phase, model, input_tokens, output_tokens, cost_usd)

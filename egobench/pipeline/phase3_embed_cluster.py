@@ -11,7 +11,7 @@ from rich.console import Console
 from egobench.config import EgoBenchConfig
 from egobench.db import DB
 from egobench.llm.base import estimate_tokens
-from egobench.llm.pricing import estimate_cost
+from egobench.llm.pricing import PricingResolver, estimate_cost
 
 
 DIM = 32
@@ -39,14 +39,20 @@ STOP = {
 }
 
 
-def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+def run(
+    db: DB,
+    cfg: EgoBenchConfig,
+    console: Console | None = None,
+    *,
+    pricing: PricingResolver | None = None,
+) -> dict:
     console = console or Console()
     tasks = _task_rows(db)
     console.print(f"[dim]phase3: embedding and clustering {len(tasks)} tasks[/dim]")
     if not tasks:
         return {"phase": 3, "clusters": 0}
     texts = [row["first_user_text"] for row in tasks]
-    embeddings = _embed_texts(texts, cfg, db, console)
+    embeddings = _embed_texts(texts, cfg, db, console, pricing)
     candidate_labels = _cluster(embeddings, [row["first_user_text"] for row in tasks], cfg, console)
     candidate_sizes = Counter(candidate_labels)
     duplicate_labels = _near_duplicate_labels(embeddings, cfg.sample.near_duplicate_threshold)
@@ -118,7 +124,13 @@ def _embed_text(text: str) -> list[float]:
     return [value / norm for value in vec]
 
 
-def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB, console: Console) -> list[list[float]]:
+def _embed_texts(
+    texts: list[str],
+    cfg: EgoBenchConfig,
+    db: DB,
+    console: Console,
+    pricing: PricingResolver | None,
+) -> list[list[float]]:
     provider_cfg = cfg.provider(cfg.embeddings.provider)
     model = cfg.embeddings.model
     console.print(f"[dim]phase3: embedding with {provider_cfg.name}:{model}[/dim]")
@@ -140,9 +152,14 @@ def _embed_texts(texts: list[str], cfg: EgoBenchConfig, db: DB, console: Console
         vectors = [item.embedding for item in response.data]
         usage = getattr(response, "usage", None)
         input_tokens = getattr(usage, "prompt_tokens", sum(estimate_tokens(text) for text in texts))
-        # Local servers don't bill us — only charge when the model has a known
-        # price entry.
-        cost = 0.0 if provider_cfg.base_url else estimate_cost(model, int(input_tokens), 0)
+        cost = estimate_cost(
+            model,
+            int(input_tokens),
+            0,
+            provider=cfg.embeddings.provider,
+            resolver=pricing,
+            local=provider_cfg.api_key_env is None and provider_cfg.api_key_keyring is None,
+        )
         with db.connect() as conn:
             conn.execute(
                 """

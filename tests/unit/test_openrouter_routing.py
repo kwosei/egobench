@@ -4,7 +4,7 @@ import pytest
 
 from egobench.config import ConfigError, ModelRef, parse_config
 from egobench.llm.factory import make_client
-from egobench.llm.pricing import price_for
+from egobench.llm.pricing import has_price, price_for
 
 
 PROVIDERS_TOML = {
@@ -75,6 +75,28 @@ def test_legacy_embeddings_local_raises_with_hint():
     }
     with pytest.raises(ConfigError, match="LM Studio"):
         parse_config(bad)
+
+
+def test_pricing_overrides_parse_with_provider_scope():
+    cfg = parse_config(
+        {
+            **PROVIDERS_TOML,
+            "pricing": {
+                "models": [
+                    {
+                        "provider": "openai",
+                        "model": "gpt-5.5",
+                        "input_per_1m": 5.0,
+                        "output_per_1m": 30.0,
+                    }
+                ]
+            },
+        }
+    )
+
+    assert cfg.pricing.models[0].provider == "openai"
+    assert cfg.pricing.models[0].model == "gpt-5.5"
+    assert cfg.pricing.models[0].input_per_1m == 5.0
 
 
 def test_api_key_routes_through_provider(monkeypatch):
@@ -162,3 +184,5 @@ def test_missing_env_var_falls_back_to_recorded(monkeypatch):
 def test_pricing_strips_vendor_prefix():
     assert price_for("anthropic/claude-opus-4-7") == price_for("claude-opus-4-7")
     assert price_for("openai/gpt-5") == price_for("gpt-5")
+    assert has_price("anthropic/claude-opus-4-7")
+    assert has_price("openai/gpt-5-5")
