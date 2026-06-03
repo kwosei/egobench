@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB
 from egobench.llm.factory import make_client
+from egobench.llm.pricing import PricingResolver
 from egobench.pipeline.json_utils import parse_json_object as _json_object
 
 
@@ -22,6 +23,7 @@ def judge_response(
     task_prompt: str,
     checklist: list[str],
     response: str,
+    pricing: PricingResolver | None = None,
 ) -> dict:
     """Score one response with one judge.
 
@@ -30,7 +32,7 @@ def judge_response(
     not be parsed into a valid score, so a panel can drop it from the aggregate
     rather than dragging the consensus toward the neutral fallback of 5.
     """
-    client = make_client(judge_model, cfg, db, "eval-judge")
+    client = make_client(judge_model, cfg, db, "eval-judge", pricing=pricing)
     prompt = (
         "Return JUDGE_SCORE_JSON with keys score, strengths, weaknesses, rationale. "
         "Score must be an integer from 1 to 10.\n"
@@ -87,6 +89,7 @@ def judge_response_panel(
     checklist: list[str],
     response: str,
     aggregate: str = "mean",
+    pricing: PricingResolver | None = None,
 ) -> dict:
     """Score one response with a panel of judges and aggregate the result.
 
@@ -99,14 +102,17 @@ def judge_response_panel(
     judge_models = _unique_judge_models(judge_models)
 
     def _judge_one(ref: ModelRef) -> dict:
-        return judge_response(
-            db=db,
-            cfg=cfg,
-            judge_model=ref,
-            task_prompt=task_prompt,
-            checklist=checklist,
-            response=response,
-        )
+        kwargs = {
+            "db": db,
+            "cfg": cfg,
+            "judge_model": ref,
+            "task_prompt": task_prompt,
+            "checklist": checklist,
+            "response": response,
+        }
+        if pricing is not None:
+            kwargs["pricing"] = pricing
+        return judge_response(**kwargs)
 
     # Iterate futures in submission order so the persisted output is
     # deterministic regardless of which judge returns first.

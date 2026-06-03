@@ -15,9 +15,18 @@ from rich.panel import Panel
 from rich.table import Table
 
 from egobench.config import DEFAULT_CONFIG_TEXT, ConfigError, EgoBenchConfig, ModelRef, ProviderCfg, load_config
-from egobench.cost.estimator import build_estimate, estimate_table, eval_estimate
+from egobench.cost.estimator import (
+    build_estimate,
+    EstimateLine,
+    estimate_table,
+    eval_estimate,
+    has_approximate_prices,
+    has_unknown_prices,
+    known_cost_total,
+)
 from egobench.db import DB, fetch_conversations, init_db
 from egobench.eval.runner import load_benchmark, run_eval
+from egobench.llm.pricing import PricingResolver
 from egobench.paths import WorkspacePaths, workspace_from_cwd
 from egobench.pipeline.phase1_ingest import run as run_ingest_phase
 from egobench.pipeline.runner import PipelineCtx, run_build
@@ -170,22 +179,30 @@ def build(
 
     console.print(_env_source_text(env_path), markup=False)
     console.print(_build_models_summary(cfg), markup=False)
+    pricing = _pricing_resolver(paths, cfg)
     lines = build_estimate(
         cfg,
         task_count,
         candidate_group_sizes=_candidate_group_sizes(db),
         selected_count=_selected_task_count(db),
+        pricing=pricing,
     )
     console.print(estimate_table(lines))
+    _print_price_note(lines)
+    estimated_cost = known_cost_total(lines)
+    has_unknown_cost = has_unknown_prices(lines)
+    has_approximate_cost = has_approximate_prices(lines)
     if estimate_only:
         console.print("Dry run only; no APIs were called.")
         console.print("Next: run `egobench build` when the estimate and routing look right.")
         return
-    if not yes and sum(line.cost_usd for line in lines) > 0:
+    if not yes and (estimated_cost > 0 or has_unknown_cost):
         console.print(
             _api_confirmation_panel(
                 title="Before Build",
-                estimated_cost=sum(line.cost_usd for line in lines),
+                estimated_cost=estimated_cost,
+                has_unknown_cost=has_unknown_cost,
+                has_approximate_cost=has_approximate_cost,
                 env_path=env_path,
                 cfg=cfg,
                 refs=_build_model_refs(cfg),
@@ -197,11 +214,13 @@ def build(
             )
         )
         typer.confirm("Continue with build?", abort=True)
-    elif yes and sum(line.cost_usd for line in lines) > 0:
+    elif yes and (estimated_cost > 0 or has_unknown_cost):
         console.print(
             _api_confirmation_panel(
                 title="Build Routing",
-                estimated_cost=sum(line.cost_usd for line in lines),
+                estimated_cost=estimated_cost,
+                has_unknown_cost=has_unknown_cost,
+                has_approximate_cost=has_approximate_cost,
                 env_path=env_path,
                 cfg=cfg,
                 refs=_build_model_refs(cfg),
@@ -212,7 +231,7 @@ def build(
                 ),
             )
         )
-    ctx = PipelineCtx(paths=paths, db=db, cfg=cfg, console=console)
+    ctx = PipelineCtx(paths=paths, db=db, cfg=cfg, console=console, pricing=pricing)
     try:
         outputs = run_build(ctx, from_phase=from_phase)
     except RuntimeError as err:
@@ -277,17 +296,24 @@ def eval(
     judge_panel = _resolve_judge_panel(cfg, candidate, judge)
 
     console.print(_env_source_text(env_path), markup=False)
-    lines = eval_estimate(cfg, candidate, len(benchmark.tasks), judge_panel)
+    pricing = _pricing_resolver(paths, cfg)
+    lines = eval_estimate(cfg, candidate, len(benchmark.tasks), judge_panel, pricing=pricing)
     console.print(estimate_table(lines))
+    _print_price_note(lines)
+    estimated_cost = known_cost_total(lines)
+    has_unknown_cost = has_unknown_prices(lines)
+    has_approximate_cost = has_approximate_prices(lines)
     if estimate_only:
         console.print("Dry run only; no APIs were called.")
         console.print("Next: run the same `egobench eval` command without `--dry-run` when ready.")
         return
-    if not yes and sum(line.cost_usd for line in lines) > 0:
+    if not yes and (estimated_cost > 0 or has_unknown_cost):
         console.print(
             _api_confirmation_panel(
                 title="Before Eval",
-                estimated_cost=sum(line.cost_usd for line in lines),
+                estimated_cost=estimated_cost,
+                has_unknown_cost=has_unknown_cost,
+                has_approximate_cost=has_approximate_cost,
                 env_path=env_path,
                 cfg=cfg,
                 refs=[candidate, *judge_panel],
@@ -298,11 +324,13 @@ def eval(
             )
         )
         typer.confirm("Continue with eval?", abort=True)
-    elif yes and sum(line.cost_usd for line in lines) > 0:
+    elif yes and (estimated_cost > 0 or has_unknown_cost):
         console.print(
             _api_confirmation_panel(
                 title="Eval Routing",
-                estimated_cost=sum(line.cost_usd for line in lines),
+                estimated_cost=estimated_cost,
+                has_unknown_cost=has_unknown_cost,
+                has_approximate_cost=has_approximate_cost,
                 env_path=env_path,
                 cfg=cfg,
                 refs=[candidate, *judge_panel],
@@ -313,7 +341,15 @@ def eval(
             )
         )
     try:
-        result = run_eval(paths, db, cfg, model=candidate, judge_models=judge_panel, console=console)
+        result = run_eval(
+            paths,
+            db,
+            cfg,
+            model=candidate,
+            judge_models=judge_panel,
+            console=console,
+            pricing=pricing,
+        )
     except RuntimeError as err:
         _exit_for_runtime_error(err)
     console.print(f"Run written: {result['run_dir']}")
@@ -469,11 +505,17 @@ def _api_confirmation_panel(
     cfg: EgoBenchConfig,
     refs: Iterable[ModelRef],
     data_notice: str,
+    has_unknown_cost: bool = False,
+    has_approximate_cost: bool = False,
     deterministic_fallback_refs: set[tuple[str, str]] | None = None,
 ) -> Panel:
     deterministic_fallback_refs = deterministic_fallback_refs or set()
+    prefix = "≈" if has_approximate_cost else ""
+    estimate_label = f"{prefix}${estimated_cost:.2f}"
+    if has_unknown_cost:
+        estimate_label = f"{estimate_label} + unknown model pricing"
     lines = [
-        f"Estimated cost: ${estimated_cost:.2f}",
+        f"Estimated cost: {estimate_label}",
         _env_source_text(env_path),
         "",
         "Runtime routing:",
@@ -485,6 +527,17 @@ def _api_confirmation_panel(
         f"Data notice: {data_notice}",
     ]
     return Panel("\n".join(lines), title=title, expand=False)
+
+
+def _print_price_note(lines: list[EstimateLine]) -> None:
+    if has_approximate_prices(lines) or has_unknown_prices(lines):
+        console.print(
+            "[yellow]Some model prices are approximate or unknown; live provider charges may differ.[/yellow]"
+        )
+
+
+def _pricing_resolver(paths: WorkspacePaths, cfg: EgoBenchConfig) -> PricingResolver:
+    return PricingResolver.from_config(cfg, cache_dir=paths.cache_dir / "pricing", fetch_external=True)
 
 
 def _runtime_mode(cfg: EgoBenchConfig, ref: ModelRef, deterministic_fallback_refs: set[tuple[str, str]]) -> str:

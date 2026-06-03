@@ -59,6 +59,8 @@ egobench eval --model anthropic/claude-opus-4-7 \
 
 Per-judge scores and rationales are persisted in `scores.jsonl` (`judge_scores`, `judge_spread`) and `rationales.jsonl` (`judges`), and shown per task in the drill-down of `report.html`. `summary.json` records the panel under `judges` and the method under `scoring_aggregate`.
 
+`summary.json` also records `run_cost_usd`, which is a best-effort estimate from the pricing resolver rather than an authoritative provider invoice. See [EgoBench Pricing Estimates](pricing.md).
+
 ## Aggregated EgoScore
 
 After all tasks are scored, the eval summary (`summary.json`) computes two aggregate scores.

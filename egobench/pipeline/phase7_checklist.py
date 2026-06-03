@@ -9,6 +9,7 @@ from rich.console import Console
 from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB
 from egobench.llm.factory import make_client
+from egobench.llm.pricing import PricingResolver
 from egobench.llm.recorded import _checklist
 from egobench.pipeline.json_utils import parse_json_object as _json_object
 
@@ -17,7 +18,13 @@ CHECKLIST_BATCH_SIZE = 5
 MAX_WORKERS = 16
 
 
-def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+def run(
+    db: DB,
+    cfg: EgoBenchConfig,
+    console: Console | None = None,
+    *,
+    pricing: PricingResolver | None = None,
+) -> dict:
     console = console or Console()
     rows = _rows(db)
     panel = list(cfg.judges.checklist_panel)
@@ -30,7 +37,7 @@ def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
     panel_work: list[tuple[Any, str, list[dict]]] = []
     for ref in panel:
         key = ref.display()
-        client = make_client(ref, cfg, db, "phase7")
+        client = make_client(ref, cfg, db, "phase7", pricing=pricing)
         for batch in _chunks(rows, CHECKLIST_BATCH_SIZE):
             panel_work.append((client, key, batch))
     panel_calls = len(panel_work)
@@ -49,7 +56,7 @@ def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
                 console.print(f"[dim]phase7: panel {panel_done}/{panel_calls} batches done[/dim]")
 
     merged_by_task: dict[str, list[str]] = {}
-    merge_client = make_client(cfg.judges.default, cfg, db, "phase7")
+    merge_client = make_client(cfg.judges.default, cfg, db, "phase7", pricing=pricing)
     merge_batches_list = list(_chunks(rows, CHECKLIST_BATCH_SIZE))
     merge_calls = len(merge_batches_list)
     merge_done = 0

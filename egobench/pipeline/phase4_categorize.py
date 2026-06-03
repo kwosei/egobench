@@ -12,6 +12,7 @@ from rich.console import Console
 from egobench.config import EgoBenchConfig
 from egobench.db import DB
 from egobench.llm.factory import make_client
+from egobench.llm.pricing import PricingResolver
 from egobench.llm.recorded import _label
 from egobench.pipeline.json_utils import parse_json_object as _json_object
 
@@ -25,11 +26,17 @@ DIFFICULTY = {"easy", "medium", "hard"}
 SPECIFICITY = {"generalizable", "narrow", "one_off"}
 
 
-def run(db: DB, cfg: EgoBenchConfig, console: Console | None = None) -> dict:
+def run(
+    db: DB,
+    cfg: EgoBenchConfig,
+    console: Console | None = None,
+    *,
+    pricing: PricingResolver | None = None,
+) -> dict:
     console = console or Console()
     groups = _candidate_groups(db)
     judge = cfg.judges.default
-    client = make_client(judge, cfg, db, "phase4")
+    client = make_client(judge, cfg, db, "phase4", pricing=pricing)
     task_count = sum(len(rows) for rows in groups.values())
     console.print(
         f"[dim]phase4: inferring task families for {task_count} tasks "

@@ -140,6 +140,25 @@ model = "claude-haiku-4-5-20251001"
 provider = "openai"
 model = "text-embedding-3-small"
 
+# --- Pricing overrides -----------------------------------------------------
+#
+# EgoBench estimates API spend from token counts before a run and records best
+# estimates after a run. It fetches public model pricing catalogs when possible,
+# but you can pin prices here when a provider has custom, regional, or newly
+# released pricing. Prices are USD per 1M tokens.
+#
+# [[pricing.models]]
+# provider = "openai"  # optional; omit to apply by model id across providers
+# model = "gpt-5.5"
+# input_per_1m = 5.00
+# output_per_1m = 30.00
+#
+# [[pricing.models]]
+# provider = "anthropic"
+# model = "claude-opus-4-8"
+# input_per_1m = 5.00
+# output_per_1m = 25.00
+
 # --- Sampling --------------------------------------------------------------
 #
 # target_n                 Number of tasks to keep in the final benchmark (1–200).
@@ -213,6 +232,19 @@ class EmbeddingsCfg:
 
 
 @dataclass(frozen=True)
+class PricingOverrideCfg:
+    model: str
+    input_per_1m: float
+    output_per_1m: float
+    provider: str | None = None
+
+
+@dataclass(frozen=True)
+class PricingCfg:
+    models: list[PricingOverrideCfg] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class SampleCfg:
     target_n: int = 100
     max_family_tasks: int = 5
@@ -228,6 +260,7 @@ class EgoBenchConfig:
     judges: JudgesCfg
     embeddings: EmbeddingsCfg
     sample: SampleCfg
+    pricing: PricingCfg = field(default_factory=PricingCfg)
 
     def provider(self, name: str) -> ProviderCfg:
         if name not in self.providers:
@@ -265,6 +298,7 @@ def parse_config(raw: dict[str, Any]) -> EgoBenchConfig:
     filter_cfg = _parse_filter(raw.get("filter"), providers)
     judges = _parse_judges(raw.get("judges"), providers)
     embeddings = _parse_embeddings(raw.get("embeddings"), providers)
+    pricing = _parse_pricing(raw.get("pricing"), providers)
 
     workspace_raw = raw.get("workspace", {})
     sample_raw = raw.get("sample", {})
@@ -285,6 +319,7 @@ def parse_config(raw: dict[str, Any]) -> EgoBenchConfig:
         filter=filter_cfg,
         judges=judges,
         embeddings=embeddings,
+        pricing=pricing,
         sample=SampleCfg(
             target_n=target_n,
             max_family_tasks=max_family_tasks,
@@ -411,6 +446,55 @@ def _parse_embeddings(raw: Any, providers: dict[str, ProviderCfg]) -> Embeddings
             f"[embeddings].provider = '{provider}' is not declared under [providers.{provider}]."
         )
     return EmbeddingsCfg(provider=str(provider), model=str(model))
+
+
+def _parse_pricing(raw: Any, providers: dict[str, ProviderCfg]) -> PricingCfg:
+    if raw is None:
+        return PricingCfg()
+    if not isinstance(raw, dict):
+        raise ConfigError("[pricing] must be a table.")
+    models_raw = raw.get("models", [])
+    if not isinstance(models_raw, list):
+        raise ConfigError("[pricing.models] must be an array of tables.")
+    models: list[PricingOverrideCfg] = []
+    for idx, entry in enumerate(models_raw):
+        where = f"[pricing.models][{idx}]"
+        if not isinstance(entry, dict):
+            raise ConfigError(f"{where} must be a table.")
+        model = str(entry.get("model", "")).strip()
+        if not model:
+            raise ConfigError(f"{where} requires `model`.")
+        provider_raw = entry.get("provider")
+        provider = str(provider_raw).strip() if provider_raw else None
+        if provider is not None and provider not in providers:
+            raise ConfigError(
+                f"{where}: provider '{provider}' is not declared under [providers.{provider}]."
+            )
+        input_per_1m = _price_value(entry, "input", where)
+        output_per_1m = _price_value(entry, "output", where)
+        models.append(
+            PricingOverrideCfg(
+                provider=provider,
+                model=model,
+                input_per_1m=input_per_1m,
+                output_per_1m=output_per_1m,
+            )
+        )
+    return PricingCfg(models=models)
+
+
+def _price_value(entry: dict[str, Any], side: str, where: str) -> float:
+    per_1m_key = f"{side}_per_1m"
+    per_1k_key = f"{side}_per_1k"
+    if per_1m_key in entry:
+        value = float(entry[per_1m_key])
+    elif per_1k_key in entry:
+        value = float(entry[per_1k_key]) * 1000.0
+    else:
+        raise ConfigError(f"{where} requires `{per_1m_key}` or `{per_1k_key}`.")
+    if value < 0:
+        raise ConfigError(f"{where}.{per_1m_key} must be non-negative.")
+    return value
 
 
 def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
