@@ -9,7 +9,7 @@ from rich.console import Console
 
 from egobench.config import EgoBenchConfig, ModelRef
 from egobench.db import DB, latest_benchmark_hash
-from egobench.eval.judge import judge_response
+from egobench.eval.judge import judge_response_panel
 from egobench.eval.score import compute_scores
 from egobench.llm.factory import make_client
 from egobench.paths import WorkspacePaths
@@ -23,7 +23,7 @@ def run_eval(
     cfg: EgoBenchConfig,
     *,
     model: ModelRef,
-    judge_model: ModelRef,
+    judge_models: list[ModelRef],
     console: Console | None = None,
 ) -> dict:
     console = console or Console()
@@ -32,9 +32,11 @@ def run_eval(
     if expected_hash and expected_hash != benchmark.metadata.benchmark_hash:
         raise RuntimeError("benchmark.json does not match the latest SQLite benchmark snapshot.")
 
+    aggregate = cfg.judges.scoring_aggregate
     total = len(benchmark.tasks)
     console.print(
-        f"[dim]eval: running {total} tasks with {model.display()}; judging with {judge_model.display()}[/dim]"
+        f"[dim]eval: running {total} tasks with {model.display()}; "
+        f"judging with {_panel_label(judge_models, aggregate)}[/dim]"
     )
     started = time.monotonic()
     before_cost_id = _max_cost_id(db)
@@ -54,14 +56,17 @@ def run_eval(
             prompt = task_prompt(task)
             console.print(f"[dim]eval: [{idx}/{total}] answering {task.id} with {model.display()}[/dim]")
             response = answer_task(db, cfg, model, task)
-            console.print(f"[dim]eval: [{idx}/{total}] judging {task.id} with {judge_model.display()}[/dim]")
-            judged = judge_response(
+            console.print(
+                f"[dim]eval: [{idx}/{total}] judging {task.id} with {len(judge_models)} judge(s)[/dim]"
+            )
+            judged = judge_response_panel(
                 db=db,
                 cfg=cfg,
-                judge_model=judge_model,
+                judge_models=judge_models,
                 task_prompt=prompt,
                 checklist=task.checklist,
                 response=response,
+                aggregate=aggregate,
             )
             score_row = {
                 "task_id": task.id,
@@ -69,12 +74,14 @@ def run_eval(
                 "category": task.category,
                 "cluster_size": task.cluster_size,
                 "score": judged["score"],
+                "judge_scores": judged["judge_scores"],
+                "judge_spread": judged["judge_spread"],
             }
             rationale_row = {
                 "task_id": task.id,
-                "strengths": judged["strengths"],
-                "weaknesses": judged["weaknesses"],
-                "rationale": judged["rationale"],
+                "aggregate": judged["aggregate"],
+                "judge_spread": judged["judge_spread"],
+                "judges": judged["judges"],
             }
             tasks_file.write(json.dumps({"task_id": task.id, "prompt": prompt, "checklist": task.checklist}) + "\n")
             responses_file.write(json.dumps({"task_id": task.id, "response": response}, ensure_ascii=False) + "\n")
@@ -91,7 +98,8 @@ def run_eval(
     cost_usd = _cost_since(db, before_cost_id)
     payload = {
         "model": model.display(),
-        "judge": judge_model.display(),
+        "judges": [ref.display() for ref in judge_models],
+        "scoring_aggregate": aggregate,
         "benchmark_hash": benchmark.metadata.benchmark_hash,
         "task_count": len(score_rows),
         "raw_egoscore": summary.raw,
@@ -133,6 +141,13 @@ def answer_task(db: DB, cfg: EgoBenchConfig, model: ModelRef, task: BenchmarkTas
         return json.loads(completion.text).get("response", completion.text).strip()
     except Exception:
         return completion.text.strip()
+
+
+def _panel_label(judge_models: list[ModelRef], aggregate: str) -> str:
+    names = ", ".join(ref.display() for ref in judge_models)
+    if len(judge_models) == 1:
+        return names
+    return f"{len(judge_models)}-judge panel ({aggregate}): {names}"
 
 
 def _safe_model_name(model: str) -> str:

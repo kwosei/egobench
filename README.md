@@ -116,16 +116,18 @@ Preview eval cost and routing first:
 uv run egobench eval --provider lmstudio --model google/gemma-4-e4b --dry-run
 ```
 
-By default, eval uses `[judges.default]`. To override the judge for one run:
+By default, eval scores with `[judges.default]`. To score with a panel of judges and average their scores, pass `--judge provider:model` once per judge — repeating it builds the panel and overrides any configured `[[judges.scoring_panel]]`:
 
 ```bash
 uv run egobench eval \
   --provider openrouter \
   --model anthropic/claude-sonnet-4 \
-  --judge-provider anthropic \
-  --judge-model claude-opus-4-7 \
+  --judge anthropic:claude-opus-4-7 \
+  --judge openai:gpt-5 \
   --yes
 ```
+
+A panel reduces single-model bias — useful when scoring a frontier model with other frontier models. You can also configure a standing panel (and `mean`/`median` aggregation, or self-exclusion) in `egobench.toml`; see [EgoBench Scoring](docs/scoring.md#judge-panel).
 
 ### 9. Compare and inspect results
 

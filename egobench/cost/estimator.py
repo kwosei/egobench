@@ -71,11 +71,17 @@ def build_estimate(
     return lines
 
 
-def eval_estimate(cfg: EgoBenchConfig, model: ModelRef, task_count: int) -> list[EstimateLine]:
-    return [
-        EstimateLine("answer", model, task_count, task_count * 900, task_count * 700),
-        EstimateLine("judge", cfg.judges.default, task_count, task_count * 1100, task_count * 180),
-    ]
+def eval_estimate(
+    cfg: EgoBenchConfig,
+    model: ModelRef,
+    task_count: int,
+    judge_models: list[ModelRef] | None = None,
+) -> list[EstimateLine]:
+    panel = judge_models or cfg.judges.eval_judges()
+    lines = [EstimateLine("answer", model, task_count, task_count * 900, task_count * 700)]
+    for ref in panel:
+        lines.append(EstimateLine("judge", ref, task_count, task_count * 1100, task_count * 180))
+    return lines
 
 
 def estimate_table(lines: list[EstimateLine]) -> Table:

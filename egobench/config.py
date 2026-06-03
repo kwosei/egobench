@@ -65,18 +65,22 @@ api_key_env = "OPENAI_API_KEY"
 # A "judge" is a model EgoBench uses to do its own internal work — labeling
 # clusters during `build`, writing the rubric (checklist) for each task, and
 # scoring answers during `eval`. Judges are separate from the model you are
-# benchmarking; you usually want a strong, expensive judge that scores fairly
+# benchmarking; you usually want strong, expensive judges that score fairly
 # regardless of which model is being tested.
 #
-# [judges.default] is the single judge used for `eval` scoring and the
-# checklist-merge step. [[judges.checklist_panel]] is an array of models used
-# to draft rubric items during phase 7 — using a panel (rather than one model)
-# reduces single-model bias in what counts as "doing well" on a task. The
-# default judge then merges the panel's items into the final rubric.
+# [judges.default] is the fallback judge: it powers `build` labeling, does the
+# checklist-merge step, and scores `eval` answers when no scoring panel is set.
 #
-# Add one [[judges.checklist_panel]] block per panel model. You can include as
-# many as you want; each block must name a declared provider and the model id to
-# call through that provider.
+# [[judges.checklist_panel]] is an array of models that draft rubric items
+# during phase 7; the default judge then merges them into the final rubric.
+# [[judges.scoring_panel]] is an array of models that each score every answer
+# during `eval`, aggregated (see scoring_aggregate) into one consensus score
+# per task. A panel reduces single-model bias — important when scoring a
+# frontier model, where you want other frontier models grading it. Omit the
+# scoring panel and `eval` uses [judges.default] alone, exactly as before.
+#
+# Add one [[...]] block per panel model; each must name a declared provider and
+# the model id to call through it.
 
 [judges.default]
 provider = "anthropic"
@@ -89,6 +93,26 @@ model = "claude-opus-4-7"
 [[judges.checklist_panel]]
 provider = "openai"
 model = "gpt-5"
+
+# To score `eval` answers with a panel instead of the single default judge,
+# uncomment the block below (a [judges] header after [judges.default] is valid
+# TOML). scoring_aggregate is "mean" (default) or "median";
+# exclude_candidate_provider drops any panel judge sharing the benchmarked
+# model's provider so a model never grades itself (errors if it empties the
+# panel). You can also pass judges ad hoc: `egobench eval ... --judge
+# openai:gpt-5 --judge anthropic:claude-opus-4-7`.
+#
+# [judges]
+# scoring_aggregate = "mean"
+# exclude_candidate_provider = true
+#
+# [[judges.scoring_panel]]
+# provider = "anthropic"
+# model = "claude-opus-4-7"
+#
+# [[judges.scoring_panel]]
+# provider = "openai"
+# model = "gpt-5"
 
 # --- Filter ----------------------------------------------------------------
 #
@@ -167,6 +191,19 @@ class FilterCfg:
 class JudgesCfg:
     default: ModelRef
     checklist_panel: list[ModelRef] = field(default_factory=list)
+    scoring_panel: list[ModelRef] = field(default_factory=list)
+    scoring_aggregate: str = "mean"
+    exclude_candidate_provider: bool = False
+
+    def eval_judges(self) -> list[ModelRef]:
+        """Judges used to score answers during `eval`.
+
+        A non-empty [[judges.scoring_panel]] is the panel; otherwise we fall
+        back to the single [judges.default] judge (a panel of one), so configs
+        without a scoring panel behave exactly as before. Candidate-provider
+        exclusion is applied by the caller, which knows the candidate.
+        """
+        return list(self.scoring_panel) or [self.default]
 
 
 @dataclass(frozen=True)
@@ -328,7 +365,27 @@ def _parse_judges(raw: Any, providers: dict[str, ProviderCfg]) -> JudgesCfg:
         _parse_model_ref(entry, providers, f"[judges.checklist_panel][{idx}]")
         for idx, entry in enumerate(panel_raw)
     ]
-    return JudgesCfg(default=default, checklist_panel=panel)
+    scoring_raw = raw.get("scoring_panel", [])
+    if not isinstance(scoring_raw, list):
+        raise ConfigError("[judges.scoring_panel] must be an array of tables.")
+    scoring_panel = [
+        _parse_model_ref(entry, providers, f"[judges.scoring_panel][{idx}]")
+        for idx, entry in enumerate(scoring_raw)
+    ]
+    aggregate = str(raw.get("scoring_aggregate", "mean")).strip().lower()
+    if aggregate not in {"mean", "median"}:
+        raise ConfigError('[judges].scoring_aggregate must be "mean" or "median".')
+    exclude_raw = raw.get("exclude_candidate_provider", False)
+    if not isinstance(exclude_raw, bool):
+        raise ConfigError("[judges].exclude_candidate_provider must be true or false.")
+    exclude = exclude_raw
+    return JudgesCfg(
+        default=default,
+        checklist_panel=panel,
+        scoring_panel=scoring_panel,
+        scoring_aggregate=aggregate,
+        exclude_candidate_provider=exclude,
+    )
 
 
 def _parse_embeddings(raw: Any, providers: dict[str, ProviderCfg]) -> EmbeddingsCfg:
@@ -363,6 +420,10 @@ def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
     return {
         "workspace": {"seed": cfg.workspace.seed},
         "filter": {"provider": cfg.filter.model_ref.provider, "model": cfg.filter.model_ref.model},
+        # Only build-time judge config belongs here: this dict feeds the phase
+        # cache key and the benchmark hash. The scoring panel/aggregate are
+        # eval-time concerns and are intentionally excluded — changing them must
+        # not bust the build cache or rewrite the benchmark hash.
         "judges": {
             "default": _ref(cfg.judges.default),
             "checklist_panel": [_ref(ref) for ref in cfg.judges.checklist_panel],

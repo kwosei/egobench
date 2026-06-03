@@ -9,6 +9,25 @@ def test_default_estimates_stay_under_budget(tmp_path):
     assert sum(line.cost_usd for line in eval_estimate(cfg, candidate, 100)) < 5
 
 
+def test_eval_estimate_one_judge_line_per_panel_member(tmp_path):
+    cfg = load_config(tmp_path / "missing.toml")
+    candidate = ModelRef(provider="openai", model="gpt-5")
+    panel = [
+        ModelRef(provider="anthropic", model="claude-opus-4-7"),
+        ModelRef(provider="openai", model="gpt-5"),
+    ]
+
+    judge_lines = [line for line in eval_estimate(cfg, candidate, 50, panel) if line.phase == "judge"]
+    assert [line.model.display() for line in judge_lines] == [
+        "anthropic:claude-opus-4-7",
+        "openai:gpt-5",
+    ]
+
+    # No explicit panel → a single judge line resolved from config (back-compat).
+    default_judge_lines = [line for line in eval_estimate(cfg, candidate, 50) if line.phase == "judge"]
+    assert len(default_judge_lines) == 1
+
+
 def test_build_estimate_uses_batch_counts(tmp_path):
     cfg = load_config(tmp_path / "missing.toml")
 
