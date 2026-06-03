@@ -537,7 +537,7 @@ def _print_price_note(lines: list[EstimateLine]) -> None:
 
 
 def _pricing_resolver(paths: WorkspacePaths, cfg: EgoBenchConfig) -> PricingResolver:
-    return PricingResolver.from_config(cfg, cache_dir=paths.cache_dir / "pricing", fetch_external=True)
+    return PricingResolver.from_config(cfg, cache_dir=paths.cache_dir / "pricing")
 
 
 def _runtime_mode(cfg: EgoBenchConfig, ref: ModelRef, deterministic_fallback_refs: set[tuple[str, str]]) -> str:

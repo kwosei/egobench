@@ -127,8 +127,11 @@ class PricingResolver:
         cfg: Any,
         *,
         cache_dir: Path | None = None,
-        fetch_external: bool = True,
+        fetch_external: bool | None = None,
     ) -> PricingResolver:
+        pricing_cfg = getattr(cfg, "pricing", None)
+        if fetch_external is None:
+            fetch_external = getattr(pricing_cfg, "fetch_external", True)
         overrides = [
             PriceOverride(
                 provider=getattr(item, "provider", None),
@@ -138,7 +141,7 @@ class PricingResolver:
                     output_per_1k=float(getattr(item, "output_per_1m")) / 1000.0,
                 ),
             )
-            for item in getattr(getattr(cfg, "pricing", None), "models", [])
+            for item in getattr(pricing_cfg, "models", [])
         ]
         return cls(overrides=overrides, cache_dir=cache_dir, fetch_external=fetch_external)
 
@@ -321,12 +324,16 @@ def _index_overrides(overrides: list[PriceOverride]) -> dict[str, _CatalogQuote]
     out: dict[str, _CatalogQuote] = {}
     for override in overrides:
         model = override.model.strip().lower()
-        keys = [model, _normalize_model_id(model)]
+        quote = _CatalogQuote(override.price, "config", override.model)
         if override.provider:
+            # Provider-scoped overrides must only match that provider, so index
+            # them under provider-prefixed keys and never under the bare model id.
+            keys = []
             for alias in _provider_aliases(override.provider):
                 keys.append(f"{alias}/{model}")
                 keys.append(f"{alias}/{_normalize_model_id(model)}")
-        quote = _CatalogQuote(override.price, "config", override.model)
+        else:
+            keys = [model, _normalize_model_id(model)]
         for key in keys:
             out[key.lower()] = quote
     return out

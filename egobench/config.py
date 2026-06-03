@@ -147,6 +147,12 @@ model = "text-embedding-3-small"
 # but you can pin prices here when a provider has custom, regional, or newly
 # released pricing. Prices are USD per 1M tokens.
 #
+# Set fetch_external = false to skip public catalog fetches entirely (useful in
+# offline or airgapped environments); EgoBench then uses any cached catalogs,
+# overrides, and built-in/rough estimates only.
+# [pricing]
+# fetch_external = true
+#
 # [[pricing.models]]
 # provider = "openai"  # optional; omit to apply by model id across providers
 # model = "gpt-5.5"
@@ -242,6 +248,7 @@ class PricingOverrideCfg:
 @dataclass(frozen=True)
 class PricingCfg:
     models: list[PricingOverrideCfg] = field(default_factory=list)
+    fetch_external: bool = True
 
 
 @dataclass(frozen=True)
@@ -453,6 +460,9 @@ def _parse_pricing(raw: Any, providers: dict[str, ProviderCfg]) -> PricingCfg:
         return PricingCfg()
     if not isinstance(raw, dict):
         raise ConfigError("[pricing] must be a table.")
+    fetch_external = raw.get("fetch_external", True)
+    if not isinstance(fetch_external, bool):
+        raise ConfigError("[pricing].fetch_external must be true or false.")
     models_raw = raw.get("models", [])
     if not isinstance(models_raw, list):
         raise ConfigError("[pricing.models] must be an array of tables.")
@@ -480,20 +490,22 @@ def _parse_pricing(raw: Any, providers: dict[str, ProviderCfg]) -> PricingCfg:
                 output_per_1m=output_per_1m,
             )
         )
-    return PricingCfg(models=models)
+    return PricingCfg(models=models, fetch_external=fetch_external)
 
 
 def _price_value(entry: dict[str, Any], side: str, where: str) -> float:
     per_1m_key = f"{side}_per_1m"
     per_1k_key = f"{side}_per_1k"
     if per_1m_key in entry:
+        key_used = per_1m_key
         value = float(entry[per_1m_key])
     elif per_1k_key in entry:
+        key_used = per_1k_key
         value = float(entry[per_1k_key]) * 1000.0
     else:
         raise ConfigError(f"{where} requires `{per_1m_key}` or `{per_1k_key}`.")
     if value < 0:
-        raise ConfigError(f"{where}.{per_1m_key} must be non-negative.")
+        raise ConfigError(f"{where}.{key_used} must be non-negative.")
     return value
 
 
