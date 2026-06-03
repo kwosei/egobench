@@ -334,7 +334,10 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
   color: var(--color-slate-text);
   background: rgba(120,114,109,0.10);
 }
-.charts-body { min-width: 0; }
+.charts-body {
+  max-width: 640px;
+  margin: 0 auto;
+}
 #chart-bars svg {
   max-width: 100%;
   height: auto;
