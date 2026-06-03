@@ -8,7 +8,7 @@ from jinja2 import Template
 from egobench.paths import WorkspacePaths
 from egobench.reporting.leaderboard import format_judges, load_run_summaries
 from egobench.reporting.markdown import render_markdown
-from egobench.reporting.radar import bar_svg, radar_svg
+from egobench.reporting.radar import bar_svg
 
 
 HTML_TEMPLATE = Template(
@@ -334,14 +334,8 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
   color: var(--color-slate-text);
   background: rgba(120,114,109,0.10);
 }
-.charts-body {
-  display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
-  gap: 32px;
-  align-items: center;
-}
-@media (max-width: 880px) { .charts-body { grid-template-columns: 1fr; } }
-#chart-radar svg, #chart-bars svg {
+.charts-body { min-width: 0; }
+#chart-bars svg {
   max-width: 100%;
   height: auto;
 }
@@ -736,7 +730,6 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
       {% endfor %}
     </div>
     <div class="charts-body">
-      <div id="chart-radar">{{ radar_all|safe }}</div>
       <div id="chart-bars">{{ bars_all|safe }}</div>
     </div>
     <div class="legend">
@@ -909,9 +902,8 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
   apply();
 
   const tabs = document.getElementById('chart-tabs');
-  const radarHost = document.getElementById('chart-radar');
   const barsHost = document.getElementById('chart-bars');
-  if (tabs && radarHost && barsHost) {
+  if (tabs && barsHost) {
     const charts = {{ charts_json|safe }};
     tabs.addEventListener('click', (event) => {
       const btn = event.target.closest('.tab');
@@ -919,7 +911,7 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
       const key = btn.dataset.model;
       tabs.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', t === btn ? 'true' : 'false'));
       const entry = charts[key] || charts.__all__;
-      if (entry) { radarHost.innerHTML = entry.radar; barsHost.innerHTML = entry.bars; }
+      if (entry) { barsHost.innerHTML = entry.bars; }
     });
   }
 })();
@@ -962,14 +954,12 @@ def render_reports(paths: WorkspacePaths) -> None:
 
     charts = {
         "__all__": {
-            "radar": radar_svg(runs, categories),
             "bars": bar_svg(_combined_per_category(runs)),
         }
     }
     for row in runs:
         per_cat = row.get("per_category", {})
         charts[row["_chart_key"]] = {
-            "radar": radar_svg([row], categories),
             "bars": bar_svg(per_cat),
         }
 
@@ -984,7 +974,6 @@ def render_reports(paths: WorkspacePaths) -> None:
         top_score=top_score,
         total_cost=total_cost,
         total_wall=total_wall,
-        radar_all=charts["__all__"]["radar"],
         bars_all=charts["__all__"]["bars"],
         charts_json=json.dumps(charts),
         model_options=model_options,

@@ -45,6 +45,42 @@ def test_html_report_guards_layout_against_long_model_names(tmp_path):
     assert "table-layout: fixed;" in html
 
 
+def test_html_report_omits_unreadable_radar_chart(tmp_path):
+    paths = WorkspacePaths(tmp_path)
+    run_dir = paths.runs_dir / "openrouter" / "run-1"
+    run_dir.mkdir(parents=True)
+    paths.benchmark.write_text(
+        json.dumps({"metadata": {"benchmark_hash": "abc", "task_count": 2}, "tasks": []}),
+        encoding="utf-8",
+    )
+    (run_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "model": "openrouter:test/model",
+                "raw_egoscore": 6.0,
+                "frequency_weighted_egoscore": 6.0,
+                "run_cost_usd": 0,
+                "wall_time_seconds": 1,
+                "per_category": {
+                    "creative ideation and campaign planning": 7.0,
+                    "customer discovery interviewing": 5.0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    render_reports(paths)
+
+    html = paths.report_html.read_text(encoding="utf-8")
+    assert "Per-category breakdown" in html
+    assert "chart-bars" in html
+    assert "Per-category bar chart" in html
+    assert "chart-radar" not in html
+    assert "ebx-radar" not in html
+    assert "Per-category radar chart" not in html
+
+
 def test_html_report_escapes_model_response_content(tmp_path):
     paths = WorkspacePaths(tmp_path)
     run_dir = paths.runs_dir / "openrouter" / "run-1"
