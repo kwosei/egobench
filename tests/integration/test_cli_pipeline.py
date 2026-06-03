@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -82,6 +83,26 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     assert "eval: running 8 tasks with openai:gpt-5" in result.output
     assert "eval: [1/8] answering task-0001" in result.output
     assert "eval: completed 8 tasks" in result.output
+
+    # Panel scoring: repeat --judge to score every answer with multiple judges
+    # and aggregate per task. Recorded fallback handles all calls offline.
+    result = runner.invoke(
+        app,
+        [
+            "eval", "--provider", "openai", "--model", "gpt-5",
+            "--judge", "anthropic:claude-opus-4-7", "--judge", "openai:gpt-5", "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "2-judge panel" in result.output
+    runs_dir = tmp_path / "egobench-workspace" / "runs"
+    score_rows = [
+        json.loads(line)
+        for path in runs_dir.glob("*/*/scores.jsonl")
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(len(row.get("judge_scores", {})) == 2 for row in score_rows)
 
     result = runner.invoke(app, ["report"])
     assert result.exit_code == 0, result.output

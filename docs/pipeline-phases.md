@@ -82,7 +82,7 @@ The table below is the same flow as the diagram, but expanded with the model, in
 | 14 | Build phase 8: Lock benchmark | Writes the final benchmark, versioned copy, metadata distributions, and reproducible hash. | None | Selected tasks, conversations, checklists, config | `benchmark.json`, `benchmark_vN.json`, `benchmark_versions` table |
 | 15 | `egobench review` | Opens the local review UI for selected tasks. You can edit checklists and importance values, then relock the benchmark. | None | `benchmark.json`, SQLite DB | Updated checklist/importance fields, new benchmark version |
 | 16 | `egobench eval --provider <name> --model <id>` | Candidate model answers each benchmark task. The model is supplied on the CLI. | Candidate model from CLI, for example `openai:gpt-5`; recorded fallback if the provider key is missing | `benchmark.json` | `responses.jsonl`, task artifacts under `runs/` |
-| 17 | Eval judging | Judge scores each candidate answer against the task checklist. | `[judges.default]` unless overridden by `--judge-provider` and `--judge-model` | Candidate response, task prompt, checklist | `scores.jsonl`, `rationales.jsonl` |
+| 17 | Eval judging | Each judge scores every candidate answer against the task checklist; with a panel, per-judge scores are aggregated into one consensus score per task. | `[[judges.scoring_panel]]` if set, else `[judges.default]`; override with repeated `--judge provider:model` | Candidate response, task prompt, checklist | `scores.jsonl` (incl. `judge_scores`, `judge_spread`), `rationales.jsonl` (per-judge `judges`) |
 | 18 | Eval summary | Computes raw EgoScore, frequency-weighted EgoScore, per-family/category means, run cost, and wall time. | None | Eval score rows and cost log | `summary.json` |
 | 19 | `egobench report` and `egobench leaderboard` | Renders local reports and prints local run rankings. | None | Run summaries, task details, benchmark metadata | `report.html`, `report.md`, terminal leaderboard |
 
@@ -94,10 +94,11 @@ The main model knobs are:
 | --- | --- | --- |
 | `[filter]` | Build phase 2 task/non-task classification | `anthropic:claude-haiku-4-5-20251001` |
 | `[embeddings]` | Build phase 3 embeddings | `openai:text-embedding-3-small` |
-| `[judges.default]` | Phase 4 batched family annotation and canonical mapping; phase 7 checklist merge; eval judging | `anthropic:claude-opus-4-7` |
+| `[judges.default]` | Phase 4 batched family annotation and canonical mapping; phase 7 checklist merge; eval scoring when no panel is set | `anthropic:claude-opus-4-7` |
 | `[[judges.checklist_panel]]` | Phase 7 batched checklist drafting panel | `anthropic:claude-opus-4-7`, `openai:gpt-5` |
+| `[[judges.scoring_panel]]` | Eval scoring panel; per-judge scores aggregated per task (`scoring_aggregate` = `mean`/`median`) | unset → uses `[judges.default]` |
 | `egobench eval --provider --model` | Candidate model being benchmarked | User supplied |
-| `egobench eval --judge-provider --judge-model` | Optional eval judge override | User supplied |
+| `egobench eval --judge provider:model` | Eval scoring judge(s); repeat for a panel; overrides config | User supplied |
 
 If a provider declares `api_key_env` and that environment variable is missing, EgoBench uses the deterministic recorded fallback client. That is useful for tests and smoke runs, but it means no real model API is being called.
 

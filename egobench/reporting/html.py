@@ -579,6 +579,33 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
   border-radius: 4px;
 }
 
+.judges { display: flex; flex-direction: column; gap: 12px; }
+.judge {
+  border: 1px solid var(--color-stone-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--color-cloud-white);
+}
+.judge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.judge-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-ash-gray);
+  overflow-wrap: anywhere;
+}
+.spread-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-ash-gray);
+  text-transform: none;
+}
+
 .empty {
   background: var(--color-cloud-white);
   border: 1px dashed var(--color-stone-border);
@@ -774,8 +801,22 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
           <pre>{{ item.response }}</pre>
         </div>
         <div class="task-section">
-          <h4>Rationale</h4>
+          <h4>{% if item.judges %}Judges{% else %}Rationale{% endif %}{% if item.judges|length > 1 and item.judge_spread is not none %} <span class="spread-tag">· spread {{ item.judge_spread }}</span>{% endif %}</h4>
+          {% if item.judges %}
+          <div class="judges">
+            {% for j in item.judges %}
+            <div class="judge">
+              <div class="judge-head">
+                <span class="judge-name">{{ j.judge }}</span>
+                <span class="badge {{ j.score_tier_class }}">{{ j.score_display }}</span>
+              </div>
+              <pre>{{ j.rationale }}</pre>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
           <pre>{{ item.rationale }}</pre>
+          {% endif %}
         </div>
         {% if item.checklist %}
         <div class="task-section full">
@@ -990,11 +1031,13 @@ def _load_details(paths: WorkspacePaths) -> list[dict]:
         for task_id, task in tasks.items():
             response = responses.get(task_id, {}).get("response", "")
             score = scores.get(task_id, {}).get("score", "")
-            rationale = rationales.get(task_id, {}).get("rationale", "")
+            rationale_row = rationales.get(task_id, {})
             prompt = task.get("prompt", "")
             checklist = task.get("checklist", []) or []
             score_num = _safe_float(score)
-            search = " ".join([model, task_id, prompt, response, rationale]).lower()
+            judges, judge_text = _judge_details(rationale_row)
+            legacy_rationale = str(rationale_row.get("rationale", ""))
+            search = " ".join([model, task_id, prompt, response, judge_text or legacy_rationale]).lower()
             items.append(
                 {
                     "model": model,
@@ -1007,11 +1050,38 @@ def _load_details(paths: WorkspacePaths) -> list[dict]:
                     "score_num": score_num if score_num is not None else "",
                     "score_display": _score_display(score_num, score),
                     "score_tier_class": _score_tier_class(score_num),
-                    "rationale": rationale or "—",
+                    "rationale": legacy_rationale or "—",
+                    "judges": judges,
+                    "judge_spread": rationale_row.get("judge_spread"),
                     "search": search,
                 }
             )
     return items
+
+
+def _judge_details(rationale_row: dict) -> tuple[list[dict], str]:
+    """Normalize a rationale row into per-judge display blocks + search text.
+
+    New panel runs carry a ``judges`` list; legacy runs have a single top-level
+    rationale and return an empty list (the template falls back to it).
+    """
+    judges: list[dict] = []
+    texts: list[str] = []
+    for entry in rationale_row.get("judges") or []:
+        if not isinstance(entry, dict):
+            continue
+        score_num = _safe_float(entry.get("score"))
+        rationale = str(entry.get("rationale") or "")
+        texts.append(rationale)
+        judges.append(
+            {
+                "judge": str(entry.get("judge") or "judge"),
+                "score_display": _score_display(score_num, entry.get("score")),
+                "score_tier_class": _score_tier_class(score_num),
+                "rationale": rationale or "—",
+            }
+        )
+    return judges, " ".join(texts)
 
 
 def _jsonl_by_id(path: Path) -> dict[str, dict]:

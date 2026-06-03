@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from egobench.config import DEFAULT_CONFIG_TEXT, ConfigError, EgoBenchConfig, ModelRef, load_config
+from egobench.config import DEFAULT_CONFIG_TEXT, ConfigError, EgoBenchConfig, ModelRef, ProviderCfg, load_config
 from egobench.cost.estimator import build_estimate, estimate_table, eval_estimate
 from egobench.db import DB, fetch_conversations, init_db
 from egobench.eval.runner import load_benchmark, run_eval
@@ -244,8 +244,13 @@ def review(
 def eval(
     provider: Annotated[str, typer.Option("--provider", help="Provider key from egobench.toml, such as openai or lmstudio.")],
     model: Annotated[str, typer.Option("--model", help="Model id to benchmark, as the provider expects it.")],
-    judge_provider: Annotated[str | None, typer.Option("--judge-provider", help="Override judge provider (requires --judge-model).")] = None,
-    judge_model: Annotated[str | None, typer.Option("--judge-model", help="Override judge model id (requires --judge-provider).")] = None,
+    judge: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--judge",
+            help="Judge as provider:model (e.g. openai:gpt-5). Repeat for a panel; overrides the configured scoring panel.",
+        ),
+    ] = None,
     estimate_only: Annotated[
         bool,
         typer.Option("--estimate-only", "--dry-run", help="Show estimated cost and exit without calling APIs."),
@@ -263,23 +268,14 @@ def eval(
     except RuntimeError as err:
         _exit_for_runtime_error(err)
 
-    if (judge_provider is None) ^ (judge_model is None):
-        raise typer.BadParameter("--judge-provider and --judge-model must be set together.")
-
     candidate = ModelRef(provider=provider, model=model)
     if provider not in cfg.providers:
         raise typer.BadParameter(f"Unknown provider '{provider}'. Add [providers.{provider}] to egobench.toml.")
 
-    if judge_provider is not None:
-        if judge_provider not in cfg.providers:
-            raise typer.BadParameter(f"Unknown judge provider '{judge_provider}'.")
-        judge_ref = ModelRef(provider=judge_provider, model=judge_model or "")
-        cfg = replace(cfg, judges=replace(cfg.judges, default=judge_ref))
-    else:
-        judge_ref = cfg.judges.default
+    judge_panel = _resolve_judge_panel(cfg, candidate, judge)
 
     console.print(_env_source_text(env_path), markup=False)
-    lines = eval_estimate(cfg, candidate, len(benchmark.tasks))
+    lines = eval_estimate(cfg, candidate, len(benchmark.tasks), judge_panel)
     console.print(estimate_table(lines))
     if estimate_only:
         console.print("Dry run only; no APIs were called.")
@@ -292,7 +288,7 @@ def eval(
                 estimated_cost=sum(line.cost_usd for line in lines),
                 env_path=env_path,
                 cfg=cfg,
-                refs=[candidate, judge_ref],
+                refs=[candidate, *judge_panel],
                 data_notice=(
                     "Eval sends benchmark tasks to the candidate provider and sends candidate responses, "
                     "task prompts, and checklists to the judge provider."
@@ -307,7 +303,7 @@ def eval(
                 estimated_cost=sum(line.cost_usd for line in lines),
                 env_path=env_path,
                 cfg=cfg,
-                refs=[candidate, judge_ref],
+                refs=[candidate, *judge_panel],
                 data_notice=(
                     "Eval sends benchmark tasks to the candidate provider and sends candidate responses, "
                     "task prompts, and checklists to the judge provider."
@@ -315,7 +311,7 @@ def eval(
             )
         )
     try:
-        result = run_eval(paths, db, cfg, model=candidate, judge_model=judge_ref, console=console)
+        result = run_eval(paths, db, cfg, model=candidate, judge_models=judge_panel, console=console)
     except RuntimeError as err:
         _exit_for_runtime_error(err)
     console.print(f"Run written: {result['run_dir']}")
@@ -522,6 +518,43 @@ def _unique_model_refs(refs: Iterable[ModelRef]) -> list[ModelRef]:
         seen.add(key)
         unique.append(ref)
     return unique
+
+
+def _resolve_judge_panel(
+    cfg: EgoBenchConfig, candidate: ModelRef, judge_specs: list[str] | None
+) -> list[ModelRef]:
+    """Resolve the scoring panel: explicit --judge wins, else config.
+
+    Explicit --judge judges are used verbatim. Otherwise we take the configured
+    scoring panel (or [judges.default]) and, when exclude_candidate_provider is
+    set, drop any judge sharing the candidate's provider so a model never grades
+    itself — erroring if that would leave no judges.
+    """
+    if judge_specs:
+        return _unique_model_refs(_parse_judge_ref(spec, cfg.providers) for spec in judge_specs)
+    panel = cfg.judges.eval_judges()
+    if cfg.judges.exclude_candidate_provider:
+        filtered = [ref for ref in panel if ref.provider != candidate.provider]
+        if not filtered:
+            raise typer.BadParameter(
+                f"Scoring panel is empty after excluding the candidate's provider "
+                f"'{candidate.provider}' (exclude_candidate_provider = true). Add a "
+                f"[[judges.scoring_panel]] judge from another provider, or pass --judge."
+            )
+        panel = filtered
+    return _unique_model_refs(panel)
+
+
+def _parse_judge_ref(spec: str, providers: dict[str, ProviderCfg]) -> ModelRef:
+    provider, sep, model_id = spec.partition(":")
+    provider, model_id = provider.strip(), model_id.strip()
+    if not sep or not provider or not model_id:
+        raise typer.BadParameter(f"--judge '{spec}' must be provider:model, e.g. openai:gpt-5.")
+    if provider not in providers:
+        raise typer.BadParameter(
+            f"Unknown judge provider '{provider}'. Add [providers.{provider}] to egobench.toml."
+        )
+    return ModelRef(provider=provider, model=model_id)
 
 
 def _exit_for_runtime_error(err: RuntimeError) -> None:
