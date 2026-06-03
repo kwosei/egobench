@@ -4,7 +4,7 @@ import pytest
 
 from egobench.config import ConfigError, ModelRef, parse_config
 from egobench.llm.factory import make_client
-from egobench.llm.pricing import has_price, price_for
+from egobench.llm.pricing import ModelPrice, PriceOverride, PricingResolver, has_price, price_for
 
 
 PROVIDERS_TOML = {
@@ -97,6 +97,29 @@ def test_pricing_overrides_parse_with_provider_scope():
     assert cfg.pricing.models[0].provider == "openai"
     assert cfg.pricing.models[0].model == "gpt-5.5"
     assert cfg.pricing.models[0].input_per_1m == 5.0
+
+
+def test_provider_scoped_override_does_not_leak_to_other_providers():
+    resolver = PricingResolver(
+        overrides=[
+            PriceOverride(
+                provider="openai",
+                model="gpt-5",
+                price=ModelPrice(input_per_1k=0.999, output_per_1k=0.999),
+            )
+        ],
+        fetch_external=False,
+    )
+
+    scoped = resolver.quote_for("gpt-5", provider="openai")
+    assert scoped.price_label == "config"
+    assert scoped.price.input_per_1k == 0.999
+
+    # A different provider must not pick up the openai-scoped override; it falls
+    # through to the built-in table instead.
+    other = resolver.quote_for("gpt-5", provider="anthropic")
+    assert other.price_label != "config"
+    assert other.price.input_per_1k != 0.999
 
 
 def test_api_key_routes_through_provider(monkeypatch):

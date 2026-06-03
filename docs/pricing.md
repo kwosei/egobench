@@ -20,6 +20,13 @@ egobench-workspace/cache/pricing/
 
 The cache TTL is 24 hours. If refresh fails, EgoBench falls back to the existing cache, then to built-in or rough prices. Catalog fetches are public HTTP requests; API keys are not sent to OpenRouter or LiteLLM for pricing lookup.
 
+In offline or airgapped environments, set `fetch_external = false` under `[pricing]` in `egobench.toml` to skip catalog fetches entirely. EgoBench then resolves prices from overrides, any already-cached catalogs, and built-in/rough estimates only — avoiding a per-run network wait when the catalog endpoints are unreachable.
+
+```toml
+[pricing]
+fetch_external = false
+```
+
 ## Reading Estimate Tables
 
 Estimate tables include a `Price` column:

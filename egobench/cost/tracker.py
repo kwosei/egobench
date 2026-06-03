@@ -28,7 +28,7 @@ class CostMeter:
         completion = self.client.complete(prompt, temperature=temperature)
         cost = (
             estimate_cost(
-                completion.model,
+                self.model,
                 completion.usage.input_tokens,
                 completion.usage.output_tokens,
                 provider=self.provider,

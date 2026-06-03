@@ -90,7 +90,7 @@ def run(
             total_in = sum(c.usage.input_tokens for c in billable)
             total_out = sum(c.usage.output_tokens for c in billable)
             cost = estimate_cost(
-                model_name,
+                cfg.filter.model_ref.model,
                 total_in,
                 total_out,
                 provider=cfg.filter.model_ref.provider,
