@@ -45,8 +45,8 @@ model = "gpt-5"
 …or pass judges ad hoc on the command line (repeat `--judge`, which overrides the configured panel):
 
 ```
-egobench eval --provider anthropic --model claude-opus-4-7 \
-  --judge openai:gpt-5 --judge google:gemini-2.5-pro
+egobench eval --model anthropic/claude-opus-4-7 \
+  --judge openai/gpt-5 --judge google/gemini-2.5-pro
 ```
 
 **Aggregation.** Each judge scores every task independently; the per-task **consensus score** is the `mean` (default) or `median` of the contributing judges. Because it is an average, the consensus score is a float (e.g. `7.5`) even though each judge emits an integer. This consensus score is what feeds the aggregate EgoScores below — the rest of the pipeline is unchanged.

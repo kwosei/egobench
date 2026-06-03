@@ -100,7 +100,7 @@ model = "gpt-5"
 # exclude_candidate_provider drops any panel judge sharing the benchmarked
 # model's provider so a model never grades itself (errors if it empties the
 # panel). You can also pass judges ad hoc: `egobench eval ... --judge
-# openai:gpt-5 --judge anthropic:claude-opus-4-7`.
+# openai/gpt-5 --judge anthropic/claude-opus-4-7`.
 #
 # [judges]
 # scoring_aggregate = "mean"

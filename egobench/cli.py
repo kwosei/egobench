@@ -220,7 +220,7 @@ def build(
     final = outputs["phase8"]
     console.print(f"Benchmark v{final['version']} written: {paths.benchmark}")
     console.print(f"Hash: {final['benchmark_hash']}")
-    console.print("Next: run `egobench review` to inspect tasks, or `egobench eval --provider <name> --model <id> --dry-run`.")
+    console.print("Next: run `egobench review` to inspect tasks, or `egobench eval --model <provider/model-id> --dry-run`.")
 
 
 @app.command()
@@ -242,13 +242,18 @@ def review(
 
 @app.command()
 def eval(
-    provider: Annotated[str, typer.Option("--provider", help="Provider key from egobench.toml, such as openai or lmstudio.")],
-    model: Annotated[str, typer.Option("--model", help="Model id to benchmark, as the provider expects it.")],
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model",
+            help="Model to benchmark as provider/model-id (e.g. openai/gpt-5 or openrouter/anthropic/claude-sonnet-4).",
+        ),
+    ],
     judge: Annotated[
         list[str] | None,
         typer.Option(
             "--judge",
-            help="Judge as provider:model (e.g. openai:gpt-5). Repeat for a panel; overrides the configured scoring panel.",
+            help="Judge as provider/model-id (e.g. openai/gpt-5). Repeat for a panel; overrides the configured scoring panel.",
         ),
     ] = None,
     estimate_only: Annotated[
@@ -259,6 +264,7 @@ def eval(
 ) -> None:
     """Run the benchmark against one model and score its answers."""
     paths, cfg, db, env_path = _workspace()
+    candidate = _parse_cli_model_ref(model, cfg.providers, "--model")
     if not paths.benchmark.exists():
         console.print("[red]No benchmark.json found.[/red]")
         console.print("Next: run `egobench build` first.")
@@ -267,10 +273,6 @@ def eval(
         benchmark = load_benchmark(paths)
     except RuntimeError as err:
         _exit_for_runtime_error(err)
-
-    candidate = ModelRef(provider=provider, model=model)
-    if provider not in cfg.providers:
-        raise typer.BadParameter(f"Unknown provider '{provider}'. Add [providers.{provider}] to egobench.toml.")
 
     judge_panel = _resolve_judge_panel(cfg, candidate, judge)
 
@@ -337,7 +339,7 @@ def leaderboard() -> None:
     paths, _, _, _ = _workspace()
     console.print(leaderboard_table(paths))
     if not load_run_summaries(paths):
-        console.print("No eval runs found yet. Next: run `egobench eval --provider <name> --model <id> --dry-run`.")
+        console.print("No eval runs found yet. Next: run `egobench eval --model <provider/model-id> --dry-run`.")
 
 
 @app.command()
@@ -440,7 +442,7 @@ def _next_step(
     if benchmark_tasks is None:
         return "`egobench build --dry-run`, then `egobench build`"
     if runs == 0:
-        return "`egobench eval --provider <name> --model <id> --dry-run`"
+        return "`egobench eval --model <provider/model-id> --dry-run`"
     return "`egobench leaderboard` or open egobench-workspace/report.html"
 
 
@@ -531,7 +533,7 @@ def _resolve_judge_panel(
     itself — erroring if that would leave no judges.
     """
     if judge_specs:
-        return _unique_model_refs(_parse_judge_ref(spec, cfg.providers) for spec in judge_specs)
+        return _unique_model_refs(_parse_cli_model_ref(spec, cfg.providers, "--judge") for spec in judge_specs)
     panel = cfg.judges.eval_judges()
     if cfg.judges.exclude_candidate_provider:
         filtered = [ref for ref in panel if ref.provider != candidate.provider]
@@ -545,14 +547,14 @@ def _resolve_judge_panel(
     return _unique_model_refs(panel)
 
 
-def _parse_judge_ref(spec: str, providers: dict[str, ProviderCfg]) -> ModelRef:
-    provider, sep, model_id = spec.partition(":")
+def _parse_cli_model_ref(spec: str, providers: dict[str, ProviderCfg], option_name: str) -> ModelRef:
+    provider, sep, model_id = spec.partition("/")
     provider, model_id = provider.strip(), model_id.strip()
     if not sep or not provider or not model_id:
-        raise typer.BadParameter(f"--judge '{spec}' must be provider:model, e.g. openai:gpt-5.")
+        raise typer.BadParameter(f"{option_name} '{spec}' must be provider/model-id, e.g. openai/gpt-5.")
     if provider not in providers:
         raise typer.BadParameter(
-            f"Unknown judge provider '{provider}'. Add [providers.{provider}] to egobench.toml."
+            f"Unknown provider '{provider}' in {option_name} '{spec}'. Add [providers.{provider}] to egobench.toml."
         )
     return ModelRef(provider=provider, model=model_id)
 

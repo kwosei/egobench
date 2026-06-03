@@ -77,7 +77,7 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     # OPENAI_API_KEY is unset, so the recorded fallback handles candidate calls.
     result = runner.invoke(
         app,
-        ["eval", "--provider", "openai", "--model", "gpt-5", "--yes"],
+        ["eval", "--model", "openai/gpt-5", "--yes"],
     )
     assert result.exit_code == 0, result.output
     assert "eval: running 8 tasks with openai:gpt-5" in result.output
@@ -89,8 +89,8 @@ def test_cli_build_eval_report_reproducible(tmp_path, monkeypatch):
     result = runner.invoke(
         app,
         [
-            "eval", "--provider", "openai", "--model", "gpt-5",
-            "--judge", "anthropic:claude-opus-4-7", "--judge", "openai:gpt-5", "--yes",
+            "eval", "--model", "openai/gpt-5",
+            "--judge", "anthropic/claude-opus-4-7", "--judge", "openai/gpt-5", "--yes",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -137,10 +137,14 @@ def test_cli_status_help_and_expected_errors(tmp_path, monkeypatch):
     assert "No conversations found." in result.output
     assert "Traceback" not in result.output
 
-    result = runner.invoke(app, ["eval", "--provider", "openai", "--model", "gpt-5", "--dry-run"])
+    result = runner.invoke(app, ["eval", "--model", "openai/gpt-5", "--dry-run"])
     assert result.exit_code == 1, result.output
     assert "No benchmark.json found." in result.output
     assert "Traceback" not in result.output
+
+    result = runner.invoke(app, ["eval", "--provider", "openai", "--model", "gpt-5", "--dry-run"])
+    assert result.exit_code != 0, result.output
+    assert "No such option" in result.output
 
     result = runner.invoke(app, ["ingest", "--help"])
     assert result.exit_code == 0, result.output
@@ -148,7 +152,7 @@ def test_cli_status_help_and_expected_errors(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["eval", "--help"])
     assert result.exit_code == 0, result.output
-    assert "Provider key from egobench.toml" in result.output
+    assert "provider/model-id" in result.output
     assert "--dry-run" in result.output
     assert "key in )." not in result.output
 
