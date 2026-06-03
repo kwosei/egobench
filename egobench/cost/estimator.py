@@ -6,7 +6,10 @@ from rich.table import Table
 
 from egobench.config import EgoBenchConfig, ModelRef, ProviderCfg
 from egobench.llm.pricing import PriceQuote, PricingResolver, quote_for_model
-from egobench.pipeline.phase4_categorize import ANNOTATION_BATCH_SIZE, CANONICAL_BATCH_SIZE
+from egobench.pipeline.phase4_categorize import (
+    ANNOTATION_BATCH_SIZE,
+    CANONICAL_BATCH_SIZE,
+)
 from egobench.pipeline.phase7_checklist import CHECKLIST_BATCH_SIZE
 
 
@@ -48,7 +51,11 @@ def build_estimate(
     selected_count: int | None = None,
     pricing: PricingResolver | None = None,
 ) -> list[EstimateLine]:
-    sampled = selected_count if selected_count is not None and selected_count > 0 else min(cfg.sample.target_n, task_count)
+    sampled = (
+        selected_count
+        if selected_count is not None and selected_count > 0
+        else min(cfg.sample.target_n, task_count)
+    )
     default = cfg.judges.default
     filter_ref = cfg.filter.model_ref
     embedding = ModelRef(provider=cfg.embeddings.provider, model=cfg.embeddings.model)
@@ -57,8 +64,24 @@ def build_estimate(
     checklist_batches = _ceil(sampled, CHECKLIST_BATCH_SIZE)
 
     lines = [
-        _estimate_line(cfg, "phase2-filter", filter_ref, task_count, task_count * 60, task_count * 1, pricing),
-        _estimate_line(cfg, "phase3-embeddings", embedding, 1 if task_count else 0, task_count * 100, 0, pricing),
+        _estimate_line(
+            cfg,
+            "phase2-filter",
+            filter_ref,
+            task_count,
+            task_count * 60,
+            task_count * 1,
+            pricing,
+        ),
+        _estimate_line(
+            cfg,
+            "phase3-embeddings",
+            embedding,
+            1 if task_count else 0,
+            task_count * 100,
+            0,
+            pricing,
+        ),
         _estimate_line(
             cfg,
             "phase4",
@@ -103,9 +126,29 @@ def eval_estimate(
     pricing: PricingResolver | None = None,
 ) -> list[EstimateLine]:
     panel = judge_models or cfg.judges.eval_judges()
-    lines = [_estimate_line(cfg, "answer", model, task_count, task_count * 900, task_count * 700, pricing)]
+    lines = [
+        _estimate_line(
+            cfg,
+            "answer",
+            model,
+            task_count,
+            task_count * 900,
+            task_count * 700,
+            pricing,
+        )
+    ]
     for ref in panel:
-        lines.append(_estimate_line(cfg, "judge", ref, task_count, task_count * 1100, task_count * 180, pricing))
+        lines.append(
+            _estimate_line(
+                cfg,
+                "judge",
+                ref,
+                task_count,
+                task_count * 1100,
+                task_count * 180,
+                pricing,
+            )
+        )
     return lines
 
 
@@ -116,7 +159,7 @@ def estimate_table(lines: list[EstimateLine]) -> Table:
     table.add_column("Calls", justify="right")
     table.add_column("Input tok", justify="right")
     table.add_column("Output tok", justify="right")
-    table.add_column("Price")
+    table.add_column("Pricing source")
     table.add_column("Cost", justify="right")
     for line in lines:
         table.add_row(
@@ -169,13 +212,23 @@ def _estimate_line(
     )
 
 
-def _quote_for_ref(provider: ProviderCfg | None, ref: ModelRef, pricing: PricingResolver | None) -> PriceQuote:
-    if provider is not None and provider.api_key_env is None and provider.api_key_keyring is None:
-        return quote_for_model(ref.model, provider=ref.provider, resolver=pricing, local=True)
+def _quote_for_ref(
+    provider: ProviderCfg | None, ref: ModelRef, pricing: PricingResolver | None
+) -> PriceQuote:
+    if (
+        provider is not None
+        and provider.api_key_env is None
+        and provider.api_key_keyring is None
+    ):
+        return quote_for_model(
+            ref.model, provider=ref.provider, resolver=pricing, local=True
+        )
     return quote_for_model(ref.model, provider=ref.provider, resolver=pricing)
 
 
-def _annotation_batch_count(task_count: int, candidate_group_sizes: list[int] | None) -> int:
+def _annotation_batch_count(
+    task_count: int, candidate_group_sizes: list[int] | None
+) -> int:
     if candidate_group_sizes:
         return sum(_ceil(size, ANNOTATION_BATCH_SIZE) for size in candidate_group_sizes)
     return _ceil(task_count, ANNOTATION_BATCH_SIZE)

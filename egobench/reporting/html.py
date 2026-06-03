@@ -168,6 +168,12 @@ a:hover { text-decoration: underline; }
   max-width: 100%;
 }
 
+.score-explainer {
+  color: var(--color-ash-gray);
+  font-size: 13px;
+  margin: 0 0 12px 0;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
@@ -675,6 +681,7 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
     <h2>Leaderboard</h2>
     <span class="hint">Frequency-weighted ranking{% if shared_judges_label %} · judged by {{ shared_judges_label }}{% endif %}</span>
   </div>
+  <p class="score-explainer"><strong>Freq-weighted</strong> score weights each question by how often that topic appears in real-world usage, so harder or more common questions matter more. <strong>Raw</strong> score is the unweighted mean across all questions.</p>
   <div class="card table-wrap">
     {% if runs %}
     <table class="leaderboard">
