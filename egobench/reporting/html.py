@@ -6,7 +6,7 @@ from pathlib import Path
 from jinja2 import Template
 
 from egobench.paths import WorkspacePaths
-from egobench.reporting.leaderboard import load_run_summaries
+from egobench.reporting.leaderboard import format_judges, load_run_summaries
 from egobench.reporting.markdown import render_markdown
 from egobench.reporting.radar import bar_svg, radar_svg
 
@@ -211,18 +211,24 @@ a:hover { text-decoration: underline; }
 }
 table.leaderboard {
   width: 100%;
-  min-width: 900px;
+  min-width: 1120px;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 14px;
   table-layout: fixed;
 }
 table.leaderboard th:nth-child(1), table.leaderboard td:nth-child(1) { width: 56px; }
-table.leaderboard th:nth-child(2), table.leaderboard td:nth-child(2) { width: 300px; }
-table.leaderboard th:nth-child(3), table.leaderboard td:nth-child(3) { width: 210px; }
-table.leaderboard th:nth-child(4), table.leaderboard td:nth-child(4) { width: 90px; }
-table.leaderboard th:nth-child(5), table.leaderboard td:nth-child(5) { width: 110px; }
-table.leaderboard th:nth-child(6), table.leaderboard td:nth-child(6) { width: 120px; }
+table.leaderboard th:nth-child(2), table.leaderboard td:nth-child(2) { width: 280px; }
+table.leaderboard th:nth-child(3), table.leaderboard td:nth-child(3) { width: 200px; }
+table.leaderboard th:nth-child(4), table.leaderboard td:nth-child(4) { width: 80px; }
+table.leaderboard th:nth-child(5), table.leaderboard td:nth-child(5) { width: 100px; }
+table.leaderboard th:nth-child(6), table.leaderboard td:nth-child(6) { width: 110px; }
+table.leaderboard th:nth-child(7), table.leaderboard td:nth-child(7) { width: 240px; }
+table.leaderboard td.judges {
+  color: var(--color-ash-gray);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
 table.leaderboard thead th {
   text-align: left;
   font-size: 12px;
@@ -670,7 +676,7 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
 <section class="section">
   <div class="section-head">
     <h2>Leaderboard</h2>
-    <span class="hint">Frequency-weighted ranking</span>
+    <span class="hint">Frequency-weighted ranking{% if shared_judges_label %} · judged by {{ shared_judges_label }}{% endif %}</span>
   </div>
   <div class="card table-wrap">
     {% if runs %}
@@ -683,6 +689,7 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
           <th class="num">Raw</th>
           <th class="num">Cost</th>
           <th class="num">Wall time</th>
+          <th>Judged by</th>
         </tr>
       </thead>
       <tbody>
@@ -704,6 +711,7 @@ table.leaderboard tbody tr:hover td { background: var(--color-canvas-fog); }
           <td class="num">{{ "%.2f"|format(row.raw_egoscore) }}</td>
           <td class="num">${{ "%.4f"|format(row.run_cost_usd or 0) }}</td>
           <td class="num">{{ "%.1f"|format(row.wall_time_seconds or 0) }}s</td>
+          <td class="judges">{{ row._judges_label }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -936,11 +944,16 @@ def render_reports(paths: WorkspacePaths) -> None:
         row["_fw_pct"] = max(0.0, min(100.0, fw * 10.0))
         row["_chart_key"] = f"run-{idx}"
         row["_display_label"] = _run_display_label(row, duplicates=(run_counts.get(row["model"], 0) > 1))
+        row["_judges_label"] = format_judges(row)
 
     details = _load_details(paths)
     benchmark_hash, task_count = _benchmark_meta(paths)
     categories = sorted({category for row in runs for category in row.get("per_category", {})})
     model_options = sorted({row["model"] for row in runs})
+    # When every run shares one judging panel, surface it once in the header
+    # instead of repeating an identical label down the column.
+    judge_labels = {row["_judges_label"] for row in runs}
+    shared_judges_label = next(iter(judge_labels)) if len(judge_labels) == 1 and "—" not in judge_labels else ""
 
     top = runs[0] if runs else None
     top_score = float(top.get("frequency_weighted_egoscore", 0)) if top else None
@@ -975,6 +988,7 @@ def render_reports(paths: WorkspacePaths) -> None:
         bars_all=charts["__all__"]["bars"],
         charts_json=json.dumps(charts),
         model_options=model_options,
+        shared_judges_label=shared_judges_label,
     )
     paths.report_html.write_text(html, encoding="utf-8")
     paths.report_md.write_text(render_markdown(paths), encoding="utf-8")
