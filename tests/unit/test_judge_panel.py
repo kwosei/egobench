@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import pytest
+import typer
 
 import egobench.eval.judge as judge_mod
-from egobench.cli import _resolve_judge_panel
-from egobench.config import ConfigError, ModelRef, parse_config
+from egobench.cli import _parse_cli_model_ref, _resolve_judge_panel
+from egobench.config import ConfigError, ModelRef, ProviderCfg, parse_config
 from egobench.eval.judge import aggregate_scores, judge_response_panel
 
 
@@ -175,12 +176,42 @@ def test_resolve_judge_panel_deduplicates_explicit_and_config_judges():
     explicit_panel = _resolve_judge_panel(
         cfg,
         candidate,
-        ["openai:gpt-5", "openai:gpt-5", "anthropic:claude-opus-4-7"],
+        ["openai/gpt-5", "openai/gpt-5", "anthropic/claude-opus-4-7"],
     )
     assert [ref.display() for ref in explicit_panel] == [
         "openai:gpt-5",
         "anthropic:claude-opus-4-7",
     ]
+
+
+def test_cli_model_ref_parser_accepts_nested_gateway_ids():
+    providers = {
+        "anthropic": ProviderCfg(name="anthropic"),
+        "openai": ProviderCfg(name="openai"),
+        "openrouter": ProviderCfg(name="openrouter"),
+    }
+
+    assert _parse_cli_model_ref("anthropic/claude-opus-4-7", providers, "--model") == ModelRef(
+        "anthropic", "claude-opus-4-7"
+    )
+    assert _parse_cli_model_ref("openrouter/anthropic/claude-opus-4-7", providers, "--judge") == ModelRef(
+        "openrouter", "anthropic/claude-opus-4-7"
+    )
+
+
+@pytest.mark.parametrize("spec", ["gpt-5", "openai/", "/gpt-5", "openai:gpt-5"])
+def test_cli_model_ref_parser_rejects_invalid_refs(spec):
+    providers = {"openai": ProviderCfg(name="openai")}
+
+    with pytest.raises(typer.BadParameter, match="provider/model-id"):
+        _parse_cli_model_ref(spec, providers, "--model")
+
+
+def test_cli_model_ref_parser_rejects_unknown_provider():
+    providers = {"openai": ProviderCfg(name="openai")}
+
+    with pytest.raises(typer.BadParameter, match="Unknown provider 'unknown'"):
+        _parse_cli_model_ref("unknown/gpt-5", providers, "--model")
 
 
 def test_invalid_scoring_aggregate_raises():

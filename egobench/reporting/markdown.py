@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from egobench.paths import WorkspacePaths
-from egobench.reporting.leaderboard import load_run_summaries
+from egobench.reporting.leaderboard import format_judges, load_run_summaries
 
 
 def render_markdown(paths: WorkspacePaths) -> str:
@@ -9,13 +9,14 @@ def render_markdown(paths: WorkspacePaths) -> str:
     lines = [
         "# EgoBench Report",
         "",
-        "| Model | Raw EgoScore | Freq-weighted EgoScore | Cost |",
-        "|---|---:|---:|---:|",
+        "| Model | Raw EgoScore | Freq-weighted EgoScore | Cost | Judges |",
+        "|---|---:|---:|---:|---|",
     ]
     for row in rows:
         lines.append(
             f"| {row['model']} | {row['raw_egoscore']:.2f} | "
-            f"{row['frequency_weighted_egoscore']:.2f} | ${row.get('run_cost_usd', 0):.4f} |"
+            f"{row['frequency_weighted_egoscore']:.2f} | ${row.get('run_cost_usd', 0):.4f} | "
+            f"{format_judges(row)} |"
         )
     lines.append("")
     lines.append("## Per-category Means")

@@ -105,7 +105,7 @@ The review UI lets you inspect selected tasks before evaluating models. Use it a
 e.g. eval your benchmark against Google Gemma 4 running locally via LM Studio.
 
 ```bash
-uv run egobench eval --provider lmstudio --model google/gemma-4-e4b
+uv run egobench eval --model lmstudio/google/gemma-4-e4b
 ```
 
 The candidate model answers each task in the current `benchmark.json`. The judge scores those answers with the task checklist on a 1–10 scale. Each eval writes a run directory under `egobench-workspace/runs/` and updates the local report. For a full explanation of how individual scores are computed and aggregated into EgoScore, see [EgoBench Scoring](docs/scoring.md).
@@ -113,17 +113,16 @@ The candidate model answers each task in the current `benchmark.json`. The judge
 Preview eval cost and routing first:
 
 ```bash
-uv run egobench eval --provider lmstudio --model google/gemma-4-e4b --dry-run
+uv run egobench eval --model lmstudio/google/gemma-4-e4b --dry-run
 ```
 
-By default, eval scores with `[judges.default]`. To score with a panel of judges and average their scores, pass `--judge provider:model` once per judge — repeating it builds the panel and overrides any configured `[[judges.scoring_panel]]`:
+CLI model refs use `provider/model-id`; if the model id itself contains slashes, everything after the first slash is passed through unchanged. By default, eval scores with `[judges.default]`. To score with a panel of judges and average their scores, pass `--judge provider/model-id` once per judge — repeating it builds the panel and overrides any configured `[[judges.scoring_panel]]`:
 
 ```bash
 uv run egobench eval \
-  --provider openrouter \
-  --model anthropic/claude-sonnet-4 \
-  --judge anthropic:claude-opus-4-7 \
-  --judge openai:gpt-5 \
+  --model openrouter/anthropic/claude-sonnet-4 \
+  --judge anthropic/claude-opus-4-7 \
+  --judge openai/gpt-5 \
   --yes
 ```
 
@@ -154,7 +153,7 @@ open egobench-workspace/report.html
 | `egobench build [--from N] [--estimate-only|--dry-run] [--yes]` | Yes | Build `benchmark.json` from ingested conversations. |
 | `egobench refresh [--estimate-only|--dry-run] [--yes]` | Yes | Rebuild from phase 2 with the current config. |
 | `egobench review` | No | Open the interactive benchmark review UI. |
-| `egobench eval --provider <name> --model <id> [--estimate-only|--dry-run] [--yes]` | Yes | Score one candidate model against the benchmark. |
+| `egobench eval --model <provider/model-id> [--estimate-only|--dry-run] [--yes]` | Yes | Score one candidate model against the benchmark. |
 | `egobench leaderboard` | No | Print a local leaderboard across eval runs. |
 | `egobench report` | No | Regenerate local HTML and Markdown reports. |
 | `egobench cost` | No | Summarize recorded spend by phase and model. |
