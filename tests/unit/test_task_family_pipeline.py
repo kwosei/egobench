@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import sys
 from io import StringIO
 from types import SimpleNamespace
 
@@ -91,6 +92,41 @@ def test_phase3_assigns_candidate_and_near_duplicate_groups(tmp_path, monkeypatc
     assert rows[0]["near_duplicate_group_id"] == rows[1]["near_duplicate_group_id"]
     assert rows[0]["near_duplicate_group_size"] == 2
     assert rows[2]["near_duplicate_group_size"] == 1
+
+
+def test_phase3_embeddings_use_effective_provider_timeout(tmp_path, monkeypatch):
+    db = init_db(tmp_path / "egobench.db")
+    cfg = EgoBenchConfig(
+        workspace=WorkspaceCfg(seed=42),
+        providers={"lmstudio": ProviderCfg(name="lmstudio", base_url="http://localhost:1234/v1")},
+        filter=FilterCfg(ModelRef(provider="lmstudio", model="filter")),
+        judges=JudgesCfg(
+            default=ModelRef(provider="lmstudio", model="judge"),
+            checklist_panel=[ModelRef(provider="lmstudio", model="panel")],
+        ),
+        embeddings=EmbeddingsCfg(provider="lmstudio", model="nomic-embed-text-v1.5"),
+        sample=SampleCfg(),
+    )
+    captured: dict = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.embeddings = SimpleNamespace(
+                create=lambda **_: SimpleNamespace(
+                    data=[SimpleNamespace(embedding=[1.0, 0.0])],
+                    usage=SimpleNamespace(prompt_tokens=3),
+                )
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    vectors = phase3_embed_cluster._embed_texts(["hello"], cfg, db, _quiet_console(), pricing=None)
+
+    assert captured["api_key"] == "not-needed"
+    assert captured["base_url"] == "http://localhost:1234/v1"
+    assert captured["timeout"] == 3600.0
+    assert vectors == [[1.0, 0.0]]
 
 
 def test_phase4_parses_free_form_family_annotation(tmp_path, monkeypatch):

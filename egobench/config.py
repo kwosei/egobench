@@ -28,6 +28,10 @@ DEFAULT_CONFIG_TEXT = """# egobench-workspace/egobench.toml
 #                offline tests, but you will not be hitting the real model.
 #   base_url     Optional for `openai` (defaults to api.openai.com). Required
 #                for every other provider, since they live at different URLs.
+#   timeout_seconds
+#                Optional request timeout. Local servers default to 3600 seconds
+#                because large on-device models can be slow; hosted providers
+#                use the OpenAI SDK default unless this is set.
 
 [workspace]
 # Controls deterministic choices during `egobench build`, especially phase 6
@@ -56,9 +60,11 @@ api_key_env = "OPENAI_API_KEY"
 #
 # [providers.lmstudio]
 # base_url = "http://localhost:1234/v1"
+# timeout_seconds = 3600
 #
 # [providers.ollama]
 # base_url = "http://localhost:11434/v1"
+# timeout_seconds = 3600
 
 # --- Judges ----------------------------------------------------------------
 #
@@ -190,6 +196,7 @@ class ProviderCfg:
     api_key_env: str | None = None
     api_key_keyring: str | None = None
     base_url: str | None = None
+    timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -348,13 +355,30 @@ def _parse_providers(raw: dict[str, Any]) -> dict[str, ProviderCfg]:
                 'base_url = "https://api.anthropic.com/v1/".'
             )
         api_key_env = values.get("api_key_env")
+        timeout_seconds = _optional_positive_float(
+            values.get("timeout_seconds"),
+            f"[providers.{name}].timeout_seconds",
+        )
         out[name] = ProviderCfg(
             name=name,
             api_key_env=str(api_key_env).strip() if api_key_env else None,
             api_key_keyring=values.get("api_key_keyring"),
             base_url=values.get("base_url"),
+            timeout_seconds=timeout_seconds,
         )
     return out
+
+
+def _optional_positive_float(value: Any, where: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as err:
+        raise ConfigError(f"{where} must be a number.") from err
+    if parsed <= 0:
+        raise ConfigError(f"{where} must be greater than 0.")
+    return parsed
 
 
 def _parse_filter(raw: Any, providers: dict[str, ProviderCfg]) -> FilterCfg:
@@ -509,12 +533,34 @@ def _price_value(entry: dict[str, Any], side: str, where: str) -> float:
     return value
 
 
+def provider_timeout_seconds(provider: ProviderCfg) -> float | None:
+    if provider.timeout_seconds is not None:
+        return provider.timeout_seconds
+    if provider.api_key_env is None and provider.api_key_keyring is None:
+        return 3600.0
+    return None
+
+
 def stable_config_dict(cfg: EgoBenchConfig) -> dict[str, Any]:
     def _ref(ref: ModelRef) -> dict[str, str]:
         return {"provider": ref.provider, "model": ref.model}
 
+    build_provider_names = {
+        cfg.filter.model_ref.provider,
+        cfg.embeddings.provider,
+        cfg.judges.default.provider,
+        *[ref.provider for ref in cfg.judges.checklist_panel],
+    }
+
     return {
         "workspace": {"seed": cfg.workspace.seed},
+        "providers": {
+            name: {
+                "base_url": cfg.provider(name).base_url,
+                "timeout_seconds": provider_timeout_seconds(cfg.provider(name)),
+            }
+            for name in sorted(build_provider_names)
+        },
         "filter": {"provider": cfg.filter.model_ref.provider, "model": cfg.filter.model_ref.model},
         # Only build-time judge config belongs here: this dict feeds the phase
         # cache key and the benchmark hash. The scoring panel/aggregate are

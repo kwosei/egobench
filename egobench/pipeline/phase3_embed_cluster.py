@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 import numpy as np
 from rich.console import Console
 
-from egobench.config import EgoBenchConfig
+from egobench.config import EgoBenchConfig, provider_timeout_seconds
 from egobench.db import DB
 from egobench.llm.base import estimate_tokens
 from egobench.llm.pricing import PricingResolver, estimate_cost
@@ -147,6 +147,9 @@ def _embed_texts(
         client_kwargs: dict = {"api_key": api_key or "not-needed"}
         if provider_cfg.base_url:
             client_kwargs["base_url"] = provider_cfg.base_url
+        timeout_seconds = provider_timeout_seconds(provider_cfg)
+        if timeout_seconds is not None:
+            client_kwargs["timeout"] = timeout_seconds
         client = OpenAI(**client_kwargs)
         response = client.embeddings.create(model=model, input=texts)
         vectors = [item.embedding for item in response.data]
