@@ -123,6 +123,17 @@ small built-in/family estimate. Approximate rows are marked with `≈`; unknown
 rows are labeled `unknown`. See [EgoBench Pricing Estimates](docs/pricing.md)
 for cache behavior, override syntax, and limitations.
 
+When evaluating a large local model through LM Studio, a single response can
+take longer than the OpenAI SDK's hosted-provider timeout. Local providers get a
+one-hour request timeout by default; if your machine or model needs longer, set
+it explicitly in `egobench-workspace/egobench.toml`:
+
+```toml
+[providers.lmstudio]
+base_url = "http://localhost:1234/v1"
+timeout_seconds = 7200
+```
+
 CLI model refs use `provider/model-id`; if the model id itself contains slashes, everything after the first slash is passed through unchanged. By default, eval scores with `[judges.default]`. To score with a panel of judges and average their scores, pass `--judge provider/model-id` once per judge — repeating it builds the panel and overrides any configured `[[judges.scoring_panel]]`:
 
 ```bash

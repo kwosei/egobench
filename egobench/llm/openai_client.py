@@ -9,11 +9,19 @@ MAX_COMPLETION_TOKENS = 4096
 
 
 class OpenAIClient:
-    def __init__(self, model: str, api_key: str, base_url: str | None = None):
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str | None = None,
+        timeout_seconds: float | None = None,
+    ):
         self.model = model
         kwargs: dict = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
+        if timeout_seconds is not None:
+            kwargs["timeout"] = timeout_seconds
         self._client = OpenAI(**kwargs)
 
     def complete(self, prompt: str, *, temperature: float = 0.0) -> Completion:

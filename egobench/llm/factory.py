@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from egobench.config import EgoBenchConfig, ModelRef
+from egobench.config import EgoBenchConfig, ModelRef, provider_timeout_seconds
 from egobench.cost.tracker import CostMeter
 from egobench.db import DB
 from egobench.llm.openai_client import OpenAIClient
@@ -26,7 +26,12 @@ def make_client(
         client = RecordedLLMClient(ref=ref)
     else:
         # Local servers (no api_key_env) accept any string; the SDK requires one.
-        client = OpenAIClient(model=ref.model, api_key=api_key or "not-needed", base_url=base_url)
+        client = OpenAIClient(
+            model=ref.model,
+            api_key=api_key or "not-needed",
+            base_url=base_url,
+            timeout_seconds=provider_timeout_seconds(provider_cfg),
+        )
     return CostMeter(
         client,
         db,

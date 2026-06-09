@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from egobench.config import ConfigError, ModelRef, parse_config
+from egobench.config import ConfigError, ModelRef, parse_config, stable_config_dict
 from egobench.llm.factory import make_client
 from egobench.llm.pricing import ModelPrice, PriceOverride, PricingResolver, has_price, price_for
 
@@ -39,6 +39,83 @@ def test_parses_provider_blocks():
     assert cfg.providers["anthropic"].base_url == "https://api.anthropic.com/v1/"
     assert cfg.providers["openrouter"].base_url == "https://openrouter.ai/api/v1"
     assert cfg.providers["lmstudio"].api_key_env is None
+
+
+def test_parses_provider_timeout_seconds():
+    cfg = parse_config(
+        {
+            **PROVIDERS_TOML,
+            "providers": {
+                **PROVIDERS_TOML["providers"],
+                "lmstudio": {
+                    "base_url": "http://localhost:1234/v1",
+                    "timeout_seconds": 7200,
+                },
+            },
+        }
+    )
+
+    assert cfg.providers["lmstudio"].timeout_seconds == 7200.0
+
+
+def test_provider_timeout_seconds_must_be_positive():
+    bad = {
+        **PROVIDERS_TOML,
+        "providers": {
+            **PROVIDERS_TOML["providers"],
+            "lmstudio": {
+                "base_url": "http://localhost:1234/v1",
+                "timeout_seconds": 0,
+            },
+        },
+    }
+
+    with pytest.raises(ConfigError, match="timeout_seconds"):
+        parse_config(bad)
+
+
+def test_provider_timeout_seconds_must_be_numeric():
+    bad = {
+        **PROVIDERS_TOML,
+        "providers": {
+            **PROVIDERS_TOML["providers"],
+            "lmstudio": {
+                "base_url": "http://localhost:1234/v1",
+                "timeout_seconds": "slow",
+            },
+        },
+    }
+
+    with pytest.raises(ConfigError, match="must be a number"):
+        parse_config(bad)
+
+
+def test_build_cache_snapshot_includes_provider_timeouts():
+    cfg = parse_config(
+        {
+            **PROVIDERS_TOML,
+            "embeddings": {"provider": "lmstudio", "model": "text-embedding-3-small"},
+        }
+    )
+    snapshot = stable_config_dict(cfg)
+
+    assert snapshot["providers"]["lmstudio"]["timeout_seconds"] == 3600.0
+
+    updated = parse_config(
+        {
+            **PROVIDERS_TOML,
+            "providers": {
+                **PROVIDERS_TOML["providers"],
+                "lmstudio": {
+                    "base_url": "http://localhost:1234/v1",
+                    "timeout_seconds": 7200,
+                },
+            },
+            "embeddings": {"provider": "lmstudio", "model": "text-embedding-3-small"},
+        }
+    )
+
+    assert stable_config_dict(updated)["providers"]["lmstudio"]["timeout_seconds"] == 7200.0
 
 
 def test_judges_parse_as_model_refs():
@@ -192,6 +269,38 @@ def test_lmstudio_uses_placeholder_key_no_env_required(monkeypatch):
     assert meter.client.__class__.__name__ == "OpenAIClient"
     assert captured["api_key"] == "not-needed"
     assert captured["base_url"] == "http://localhost:1234/v1"
+    assert captured["timeout"] == 3600.0
+
+
+def test_configured_provider_timeout_is_passed(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    cfg = parse_config(
+        {
+            **PROVIDERS_TOML,
+            "providers": {
+                **PROVIDERS_TOML["providers"],
+                "openrouter": {
+                    "api_key_env": "OPENROUTER_API_KEY",
+                    "base_url": "https://openrouter.ai/api/v1",
+                    "timeout_seconds": 120,
+                },
+            },
+        }
+    )
+
+    captured: dict = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("egobench.llm.openai_client.OpenAI", FakeOpenAI)
+    make_client(
+        ModelRef(provider="openrouter", model="anthropic/claude-opus-4"),
+        cfg, db=None, phase="test",
+    )
+
+    assert captured["timeout"] == 120.0
 
 
 def test_missing_env_var_falls_back_to_recorded(monkeypatch):
